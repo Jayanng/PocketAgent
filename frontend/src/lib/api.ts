@@ -1,8 +1,9 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // ─── Protocol grouping (shared across dashboard components) ─────────────────
 import type { ChainProtocol, ChainConfig } from "@/lib/constants";
 import { CHAIN_CONFIGS } from "@/lib/constants";
+import { emitApiError } from "@/lib/toast-events";
 
 /** Fixed display order for the 7 protocol families, biggest first. */
 export const PROTOCOL_ORDER: ChainProtocol[] = ["evm", "cosmos", "solana", "sui", "near", "tron"];
@@ -217,6 +218,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       detail = body.detail || detail;
     } catch {
       // Keep the status-only fallback.
+    }
+    // Only toast server errors (5xx) — 4xx errors are often handled gracefully
+    // by individual callers (e.g. 404 when checking if a resource exists).
+    if (response.status >= 500) {
+      emitApiError({
+        message: detail,
+        actionLabel: "Retry",
+        actionOnClick: () => window.location.reload(),
+      });
     }
     throw new Error(detail);
   }

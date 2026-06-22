@@ -258,9 +258,9 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
     # ── Handler wrappers (smoke: they delegate to the same functions) ─────────
 
     def test_handle_list_tools_and_resources_and_prompts_delegate(self) -> None:
-        self.assertEqual(len(self._run(handle_list_tools(None))), 49)
-        self.assertEqual(len(self._run(handle_list_resources(None))), 5)
-        self.assertEqual(len(self._run(handle_list_prompts(None))), 4)
+        self.assertEqual(len(self._run(handle_list_tools())), 49)
+        self.assertEqual(len(self._run(handle_list_resources())), 5)
+        self.assertEqual(len(self._run(handle_list_prompts())), 4)
 
     def test_handle_get_prompt_delegates(self) -> None:
         result = self._run(handle_get_prompt("find_cheapest_chain", {"operation_type": "native_transfer"}))

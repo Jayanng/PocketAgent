@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ChainIcon } from "@/components/chains/chain-icon";
+import { FundAgentDialog } from "@/components/agents/fund-agent-dialog";
 import type { Agent, AgentBalancesResponse, Conversation } from "@/lib/api";
 import { CHAIN_CONFIGS } from "@/lib/constants";
 import { useAgentStore } from "@/store/agent-store";
@@ -20,9 +21,9 @@ type AgentDetailProps = {
 };
 
 export function AgentDetail({ agent, conversations, balances, isLoadingBalances }: AgentDetailProps) {
-  const [fundingAddress, setFundingAddress] = useState<{ agentId: string; address: string } | null>(null);
+  const [fundingOpen, setFundingOpen] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
-  const { deleteAgent, fundAgent, loadBalances } = useAgentStore();
+  const { deleteAgent, loadBalances } = useAgentStore();
 
   useEffect(() => {
     if (agent?.id && agent.is_active) {
@@ -42,7 +43,7 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
     );
   }
 
-  const walletAddress = fundingAddress?.agentId === agent.id ? fundingAddress.address : agent.wallet_address ?? "";
+  const walletAddress = agent.wallet_address ?? "";
 
   const copyWallet = async () => {
     if (!walletAddress) return;
@@ -67,10 +68,7 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
             <ExternalLink size={15} />
             Chat with Agent
           </Link>
-          <Button
-            variant="secondary"
-            onClick={async () => setFundingAddress({ agentId: agent.id, address: await fundAgent(agent.id) })}
-          >
+          <Button variant="secondary" onClick={() => setFundingOpen(true)}>
             Fund Agent
           </Button>
           <Button variant="ghost" size="icon" onClick={confirmDelete} title="Delete agent">
@@ -158,6 +156,8 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
           </div>
         </section>
       </div>
+
+      <FundAgentDialog agent={agent} open={fundingOpen} onClose={() => setFundingOpen(false)} />
     </Card>
   );
 }

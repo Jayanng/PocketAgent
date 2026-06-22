@@ -1,10 +1,23 @@
+import { Inter, JetBrains_Mono } from "next/font/google";
 import type { Metadata } from "next";
 import { WalletProvider } from "@/components/wallet/wallet-provider";
+import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains-mono",
+});
+
 export const metadata: Metadata = {
-  title: "PocketAgent",
-  description: "AI agents for the multi-chain world",
+  title: "PocketAgent — AI Agents for the Multi-Chain World",
+  description:
+    "Deploy autonomous AI agents that read, compare, and transact across 60+ blockchains through Pocket Network's decentralized RPC. One interface. Zero centralized gatekeepers.",
 };
 
 export default function RootLayout({
@@ -13,9 +26,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
+    <html
+      lang="en"
+      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
+    >
       <body className="min-h-full bg-background text-foreground">
-        <WalletProvider>{children}</WalletProvider>
+        <WalletProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </WalletProvider>
       </body>
     </html>
   );

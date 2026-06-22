@@ -95,7 +95,7 @@ async def _build_context(args: dict[str, Any]) -> ToolContext:
 
 
 @server.list_tools()
-async def handle_list_tools(request: Any) -> list[Tool]:
+async def handle_list_tools() -> list[Tool]:
     """Expose all 49 registered tools as MCP Tool objects."""
     return list_mcp_tools()
 
@@ -136,7 +136,7 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[TextConten
 
 
 @server.list_resources()
-async def handle_list_resources(request: Any) -> list[Resource]:
+async def handle_list_resources() -> list[Resource]:
     return list_mcp_resources()
 
 
@@ -149,7 +149,7 @@ async def handle_read_resource(uri: AnyUrl) -> list[ReadResourceContents]:
 
 
 @server.list_prompts()
-async def handle_list_prompts(request: Any) -> list[Prompt]:
+async def handle_list_prompts() -> list[Prompt]:
     return list_mcp_prompts()
 
 

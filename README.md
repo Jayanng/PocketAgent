@@ -189,4 +189,4 @@ Detailed usage documentation can be found in `docs/mcp-server.md`.
 
 ## License
 
-This repository does not currently contain a license file. By default, copyright applies, restricting distribution and redistribution. Please add an appropriate license (e.g., MIT or Apache 2.0) before open-sourcing.
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.

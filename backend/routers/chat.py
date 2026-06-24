@@ -1,7 +1,7 @@
 from typing import Any
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from openai import OpenAIError
 
 try:
@@ -14,6 +14,7 @@ try:
         list_messages,
     )
     from ..models.chat import ChatAPIResponse, ConversationMessageResponse, ConversationSummary, ChatRequest
+    from ..services.agent_auth import verify_agent_access_token
     from ..services.ai_agent import AIAgentService
 except ImportError:
     from database import (
@@ -25,29 +26,53 @@ except ImportError:
         list_messages,
     )
     from models.chat import ChatAPIResponse, ConversationMessageResponse, ConversationSummary, ChatRequest
+    from services.agent_auth import verify_agent_access_token
     from services.ai_agent import AIAgentService
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
 
+def _require_agent_access(agent: dict[str, Any], access_token: str | None) -> None:
+    if not verify_agent_access_token(agent, access_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Valid X-Agent-Access-Token header is required for this agent.",
+        )
+
+
 @router.post("/chat", response_model=ChatAPIResponse)
-async def chat(request: ChatRequest) -> dict[str, Any]:
+async def chat(
+    request: ChatRequest,
+    access_token: str | None = Header(None, alias="X-Agent-Access-Token"),
+    db=Depends(get_db),
+) -> dict[str, Any]:
     if not request.agent_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="agent_id is required",
         )
+    agent = await get_agent(db, request.agent_id)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not agent.get("is_active", True):
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Agent is inactive")
+    _require_agent_access(agent, access_token)
 
-    service = AIAgentService()
     try:
-        chat_kwargs: dict[str, Any] = {
-            "message": request.message,
-            "agent_id": request.agent_id,
-            "conversation_id": request.conversation_id,
-        }
-        if request.connected_wallet_address:
-            chat_kwargs["connected_wallet_address"] = request.connected_wallet_address
-        result = await service.chat(**chat_kwargs)
+        service = AIAgentService()
+        try:
+            chat_kwargs: dict[str, Any] = {
+                "message": request.message,
+                "agent_id": request.agent_id,
+                "conversation_id": request.conversation_id,
+            }
+            if request.connected_wallet_address:
+                chat_kwargs["connected_wallet_address"] = request.connected_wallet_address
+            result = await service.chat(**chat_kwargs)
+        finally:
+            close = getattr(service, "close", None)
+            if close is not None:
+                await close()
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -89,6 +114,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
 @router.get("/conversations", response_model=list[ConversationSummary])
 async def conversations(
     agent_id: str = Query(...),
+    access_token: str | None = Header(None, alias="X-Agent-Access-Token"),
     db=Depends(get_db),
 ) -> list[dict[str, Any]]:
     agent = await get_agent(db, agent_id)
@@ -96,6 +122,7 @@ async def conversations(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     if not agent.get("is_active", True):
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Agent is inactive")
+    _require_agent_access(agent, access_token)
 
     rows = await list_conversations(db, agent_id)
     return [
@@ -109,13 +136,21 @@ async def conversations(
 
 
 @router.get("/conversations/{conversation_id}/messages", response_model=list[ConversationMessageResponse])
-async def conversation_messages(conversation_id: str, db=Depends(get_db)) -> list[dict[str, Any]]:
+async def conversation_messages(
+    conversation_id: str,
+    access_token: str | None = Header(None, alias="X-Agent-Access-Token"),
+    db=Depends(get_db),
+) -> list[dict[str, Any]]:
     conversation = await get_conversation(db, conversation_id)
     if conversation is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found",
         )
+    agent = await get_agent(db, conversation["agent_id"])
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    _require_agent_access(agent, access_token)
 
     rows = await list_messages(db, conversation_id, limit=500)
     return [
@@ -130,7 +165,21 @@ async def conversation_messages(conversation_id: str, db=Depends(get_db)) -> lis
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_conversation(conversation_id: str, db=Depends(get_db)) -> None:
+async def remove_conversation(
+    conversation_id: str,
+    access_token: str | None = Header(None, alias="X-Agent-Access-Token"),
+    db=Depends(get_db),
+) -> None:
+    conversation = await get_conversation(db, conversation_id)
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+    agent = await get_agent(db, conversation["agent_id"])
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    _require_agent_access(agent, access_token)
     deleted = await delete_conversation(db, conversation_id)
     if not deleted:
         raise HTTPException(

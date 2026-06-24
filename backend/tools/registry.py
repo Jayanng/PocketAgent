@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+
+logger = logging.getLogger(__name__)
 
 Capability = Literal["read", "compare", "transact", "analytics"]
 ToolExecutor = Callable[["ToolContext", dict[str, Any]], Awaitable[Any]]
@@ -70,7 +73,32 @@ async def execute_tool(name: str, context: ToolContext, args: dict[str, Any]) ->
         spec = TOOL_REGISTRY[name]
     except KeyError as exc:
         raise ValueError(f"Unsupported tool: {name}") from exc
-    return await spec.executor(context, args)
+    try:
+        return await spec.executor(context, args)
+    except PermissionError:
+        # Control-flow signal from the spending-cap / permission guards — keep
+        # propagating so callers (and the cap-enforcement tests) still see it.
+        raise
+    except Exception as exc:  # noqa: BLE001 - operational failures must not abort the turn
+        # An upstream Pocket RPC endpoint failed (e.g. 500/408 after retries) or
+        # a tool raised on a dead/unreachable chain. Returning a structured
+        # "unavailable" result lets the LLM/MCP client react gracefully instead
+        # of crashing the whole agent turn (chat HTTP 503).
+        logger.warning("Tool '%s' failed; returning unavailable result: %s", name, exc)
+        return _unavailable_result(name, args, exc)
+
+
+def _unavailable_result(name: str, args: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    """Structured result for a tool whose RPC call failed. Mirrors the shape
+    already used by ``radix_unavailable`` so callers get a consistent signal."""
+    result: dict[str, Any] = {
+        "available": False,
+        "error": f"{type(exc).__name__}: {exc}",
+        "tool": name,
+    }
+    if isinstance(args, dict) and args.get("chain"):
+        result["chain"] = args["chain"]
+    return result
 
 
 def validate_chain_allowed(context: ToolContext, chain: str) -> str:

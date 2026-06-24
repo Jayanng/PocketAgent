@@ -42,7 +42,10 @@ export function FundAgentDialog({ agent, open, onClose }: FundAgentDialogProps) 
   const chainConfig = CHAIN_CONFIGS[selectedChain];
   const isEvm = chainConfig?.protocol === "evm";
   const evmChainId = typeof chainConfig?.chainId === "number" ? chainConfig.chainId : null;
-  const walletAddress = agent.wallet_address ?? "";
+  const walletAddress =
+    (chainConfig?.protocol ? agent.wallet_addresses?.[chainConfig.protocol] : null) ??
+    (isEvm ? agent.wallet_address : null) ??
+    "";
 
   const explorerUrl = useMemo(() => {
     if (!chainConfig || !txHash) return null;
@@ -83,9 +86,13 @@ export function FundAgentDialog({ agent, open, onClose }: FundAgentDialogProps) 
         <div className="space-y-4 p-4">
           {/* Agent wallet address — always visible, copyable */}
           <div className="rounded-md border border-border bg-background p-3">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Agent Wallet Address</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">
+              Agent {chainConfig?.protocol?.toUpperCase() ?? ""} Wallet Address
+            </p>
             <div className="mt-2 flex items-center gap-2">
-              <code className="min-w-0 flex-1 break-all text-xs">{walletAddress || "No wallet address"}</code>
+              <code className="min-w-0 flex-1 break-all text-xs">
+                {walletAddress || `No ${chainConfig?.protocol ?? "chain"} wallet address`}
+              </code>
               <Button variant="secondary" size="sm" onClick={copyAddress} disabled={!walletAddress}>
                 <Copy size={14} />
                 {copied ? "Copied" : "Copy"}
@@ -196,7 +203,8 @@ export function FundAgentDialog({ agent, open, onClose }: FundAgentDialogProps) 
             </span>
             <p className="text-xs text-muted-foreground">
               Copy the agent address above and send {amount || "0"} {chainConfig?.symbol ?? ""}
-              {" "}to it from any wallet or exchange — EVM, Solana, or otherwise. No connection needed.
+              {" "}to it from a wallet or exchange that supports {chainConfig?.name ?? "the selected chain"}.
+              No connection needed.
             </p>
           </div>
 

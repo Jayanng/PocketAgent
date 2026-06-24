@@ -1,6 +1,30 @@
 from functools import lru_cache
+from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+BACKEND_DIR = Path(__file__).resolve().parent
+
+
+def resolve_database_path(path: str) -> str:
+    if not path or path == ":memory:" or path.startswith("file:"):
+        return path
+    db_path = Path(path)
+    if db_path.is_absolute():
+        return str(db_path)
+    return str((BACKEND_DIR / db_path).resolve())
+
+
+def ensure_database_directory(path: str) -> None:
+    if not path or path == ":memory:" or path.startswith("file:"):
+        return
+    Path(path).expanduser().parent.mkdir(parents=True, exist_ok=True)
+
+
+def parse_csv_setting(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 class Settings(BaseSettings):
@@ -31,7 +55,7 @@ class Settings(BaseSettings):
     pocket_rpc_polygon_zkevm: str = "https://poly-zkevm.api.pocket.network"
     encryption_key: str = ""
     jwt_secret: str = ""
-    database_path: str = "./pocketagent.db"
+    database_path: str = "./data/pocketagent.db"
     coingecko_api_url: str = "https://api.coingecko.com/api/v3"
     coingecko_api_key: str = ""
     cache_ttl_balance: int = 300
@@ -39,8 +63,18 @@ class Settings(BaseSettings):
     cache_ttl_blocks: int = 0
     pocket_api_base: str = "api.pocket.network"
     notional_pokt_per_relay: float = 0.00089
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return parse_csv_setting(self.cors_origins)
+
+    model_config = SettingsConfigDict(env_file=str(BACKEND_DIR / ".env"), env_file_encoding="utf-8")
+
+    @field_validator("database_path")
+    @classmethod
+    def normalize_database_path(cls, value: str) -> str:
+        return resolve_database_path(value)
 
 
 @lru_cache

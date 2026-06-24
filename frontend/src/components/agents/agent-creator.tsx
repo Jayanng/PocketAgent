@@ -23,7 +23,7 @@ export function AgentCreator() {
   const [capabilities, setCapabilities] = useState<string[]>(["read", "compare"]);
   const [spendingCap, setSpendingCap] = useState("0.1");
   const [copied, setCopied] = useState(false);
-  const { createAgent, isCreating, createdWalletAddress, clearCreatedWalletAddress } = useAgentStore();
+  const { createAgent, isCreating, createdWalletAddress, createdAccessToken, clearCreatedWalletAddress } = useAgentStore();
 
   const chainOptions = useMemo(() => Object.values(CHAIN_CONFIGS), []);
   const sendEnabled = capabilities.includes("transact");
@@ -64,6 +64,12 @@ export function AgentCreator() {
     setCopied(true);
   };
 
+  const copyAccessToken = async () => {
+    if (!createdAccessToken) return;
+    await navigator.clipboard.writeText(createdAccessToken);
+    setCopied(true);
+  };
+
   return (
     <>
       <Button onClick={() => setOpen(true)}>
@@ -94,6 +100,20 @@ export function AgentCreator() {
                       {copied ? "Copied" : "Copy"}
                     </Button>
                   </div>
+                  {createdAccessToken && (
+                    <>
+                      <p className="mt-3 text-sm">
+                        Agent access token. Save this token somewhere secure; PocketAgent keeps it for this browser tab session.
+                      </p>
+                      <div className="mt-2 flex flex-col gap-2 rounded-md border border-green-200 bg-white p-3 sm:flex-row sm:items-center">
+                        <code className="min-w-0 flex-1 break-all text-xs text-foreground">{createdAccessToken}</code>
+                        <Button variant="secondary" size="sm" onClick={copyAccessToken}>
+                          <Copy size={14} />
+                          Copy
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="flex justify-end">
                   <Button onClick={close}>Done</Button>
@@ -108,7 +128,7 @@ export function AgentCreator() {
                   </label>
                   {sendEnabled && (
                     <label className="space-y-2">
-                      <span className="text-sm font-medium">Spending Cap (ETH)</span>
+                      <span className="text-sm font-medium">Per-Chain Spending Cap</span>
                       <Input
                         type="number"
                         min="0"

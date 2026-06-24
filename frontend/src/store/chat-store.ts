@@ -2,7 +2,15 @@
 
 import { create } from "zustand";
 
-import { api, type Agent, type ChainCall, type ChatMessage, type Conversation } from "@/lib/api";
+import {
+  api,
+  getAgentAccessToken,
+  rememberAgentAccessToken,
+  type Agent,
+  type ChainCall,
+  type ChatMessage,
+  type Conversation,
+} from "@/lib/api";
 
 type ClientMessage = ChatMessage & {
   id: string;
@@ -78,7 +86,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isBootstrapping: true, error: null });
     try {
       const agents = await api.agents.list();
-      const firstAgent = agents.find((agent) => agent.is_active) ?? agents[0] ?? null;
+      const firstAgent = agents[0] ?? null;
       set({ agents, selectedAgentId: firstAgent?.id ?? null });
       if (firstAgent) {
         const conversations = await api.chat.getConversations(firstAgent.id);
@@ -170,7 +178,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async loadConversation(id) {
     set({ isLoading: true, error: null, currentConversationId: id, activeChains: [] });
     try {
-      const messages = await api.chat.getMessages(id);
+      const selectedAgentId = get().selectedAgentId;
+      const token = selectedAgentId ? getAgentAccessToken(selectedAgentId) : null;
+      const messages = await api.chat.getMessages(id, token);
       const normalized = messages.map(clientMessage);
       const lastAssistant = [...normalized].reverse().find((message) => message.role === "assistant");
       set({
@@ -198,7 +208,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async createDefaultAgent() {
     set({ isBootstrapping: true, error: null });
     try {
-      await api.agents.create(DEFAULT_AGENT);
+      const created = await api.agents.create(DEFAULT_AGENT);
+      rememberAgentAccessToken(created.id, created.access_token);
       await get().initialize();
     } catch (error) {
       set({

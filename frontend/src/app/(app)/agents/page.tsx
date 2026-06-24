@@ -22,8 +22,6 @@ export default function AgentsPage() {
     loadAgents,
     selectAgent,
   } = useAgentStore();
-  const activeAgents = agents.filter((agent) => agent.is_active);
-  const inactiveAgents = agents.filter((agent) => !agent.is_active);
 
   useEffect(() => {
     void loadAgents();
@@ -57,12 +55,10 @@ export default function AgentsPage() {
         <div className="space-y-3 lg:col-span-5">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">Configured Agents</h2>
-            <span className="text-xs text-muted-foreground">
-              {activeAgents.length} active / {inactiveAgents.length} inactive
-            </span>
+            <span className="text-xs text-muted-foreground">{agents.length} active</span>
           </div>
           <div className="space-y-3">
-            {activeAgents.map((agent) => (
+            {agents.map((agent) => (
               <AgentCard
                 key={agent.id}
                 agent={agent}
@@ -70,25 +66,10 @@ export default function AgentsPage() {
                 onSelect={() => void selectAgent(agent.id)}
               />
             ))}
-            {!activeAgents.length && (
+            {!agents.length && (
               <div className="rounded-lg border border-dashed border-border bg-card p-6 text-center">
                 <p className="text-sm font-medium">{isLoading ? "Loading agents..." : "No agents yet."}</p>
                 <p className="mt-1 text-sm text-muted-foreground">Create an agent to configure chain access and wallet limits.</p>
-              </div>
-            )}
-            {inactiveAgents.length > 0 && (
-              <div className="pt-2">
-                <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Inactive</p>
-                <div className="space-y-3 opacity-80">
-                  {inactiveAgents.map((agent) => (
-                    <AgentCard
-                      key={agent.id}
-                      agent={agent}
-                      selected={agent.id === selectedAgentId}
-                      onSelect={() => void selectAgent(agent.id)}
-                    />
-                  ))}
-                </div>
               </div>
             )}
           </div>

@@ -14,6 +14,7 @@ Schema conversion: OpenAI function-call format
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from mcp.types import Tool
@@ -24,6 +25,12 @@ except ImportError:
     from tools import TOOL_REGISTRY
 
 
+AGENT_ACCESS_TOKEN_PROPERTY = {
+    "type": "string",
+    "description": "Access token returned when the agent was created.",
+}
+
+
 def _openai_schema_to_input_schema(parameters: dict[str, Any]) -> dict[str, Any]:
     """OpenAI `parameters` and MCP `inputSchema` are both JSON-Schema objects.
 
@@ -31,10 +38,33 @@ def _openai_schema_to_input_schema(parameters: dict[str, Any]) -> dict[str, Any]
     parameters object through. We strip a leading `$schema` key if present
     (some generators add it; MCP clients don't expect it).
     """
-    cleaned = {k: v for k, v in parameters.items() if k != "$schema"}
+    cleaned = {k: v for k, v in copy.deepcopy(parameters).items() if k != "$schema"}
     # MCP requires inputSchema to be an object schema; ensure the type is set.
     cleaned.setdefault("type", "object")
     return cleaned
+
+
+def _mcp_input_schema(spec: Any) -> dict[str, Any]:
+    fn = spec.schema["function"]
+    schema = _openai_schema_to_input_schema(fn.get("parameters", {}))
+    required = list(schema.get("required", []))
+    agent_scoped = "agent_id" in required
+    if spec.capability == "transact":
+        properties = schema.setdefault("properties", {})
+        properties.setdefault("agent_id", {
+            "type": "string",
+            "description": "Agent ID whose wallet should authorize this transaction.",
+        })
+        agent_scoped = True
+        if "agent_id" not in required:
+            required.append("agent_id")
+    if agent_scoped:
+        properties = schema.setdefault("properties", {})
+        properties.setdefault("agent_access_token", AGENT_ACCESS_TOKEN_PROPERTY)
+        if "agent_access_token" not in required:
+            required.append("agent_access_token")
+        schema["required"] = required
+    return schema
 
 
 def list_mcp_tools() -> list[Tool]:
@@ -47,7 +77,7 @@ def list_mcp_tools() -> list[Tool]:
             Tool(
                 name=fn["name"],
                 description=fn.get("description", ""),
-                inputSchema=_openai_schema_to_input_schema(fn.get("parameters", {})),
+                inputSchema=_mcp_input_schema(spec),
             )
         )
     return tools

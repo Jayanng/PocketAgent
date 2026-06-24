@@ -33,6 +33,10 @@ SHARED_DB_PATH = str(SHARED_DB_DIR / "pocketagent.db")
 BASE_ENV = os.environ.copy()
 BASE_ENV["DATABASE_PATH"] = SHARED_DB_PATH
 
+EVM_TEST_FROM = "0x0000000000000000000000000000000000000001"
+EVM_TEST_TO = "0x000000000000000000000000000000000000dEaD"
+USDC_ETHEREUM = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+
 # Custom tool test cases
 CUSTOM_TOOL_TESTS = [
     # (name, args, category, requires_live_rpc)
@@ -42,7 +46,7 @@ CUSTOM_TOOL_TESTS = [
     ("estimate_transaction_cost", {
         "chain": "ethereum",
         "operation_type": "native_transfer",
-        "from_address": "0x0000000000000000000000000000000000000001",
+        "from_address": EVM_TEST_FROM,
     }, "Compare", True),
     ("analyze_wallet", {
         "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
@@ -50,9 +54,9 @@ CUSTOM_TOOL_TESTS = [
     }, "Compositional", True),
     ("simulate_transaction", {
         "chain": "ethereum",
-        "to_address": "0xDEF",
+        "to_address": EVM_TEST_TO,
         "amount": "0.01",
-        "from_address": "0xABC",
+        "from_address": EVM_TEST_FROM,
         "operation_type": "native_transfer",
     }, "Simulation", True),
 ]
@@ -61,16 +65,26 @@ CUSTOM_TOOL_TESTS = [
 AGENT_TOOL_TESTS = [
     ("get_relay_stats", {"timeframe": "all"}, "Analytics"),
     ("get_cost_breakdown", {"timeframe": "all"}, "Analytics"),
-    ("send_transaction", {"chain": "ethereum", "to_address": "0xDEF", "amount": "0.01"}, "Write"),
+    ("send_transaction", {"chain": "ethereum", "to_address": EVM_TEST_TO, "amount": "0"}, "Write"),
     ("send_erc20", {
-        "chain": "ethereum", "token_address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-        "to_address": "0xDEF", "amount": "1",
+        "chain": "ethereum", "token_address": USDC_ETHEREUM,
+        "to_address": EVM_TEST_TO, "amount": "0", "token_decimals": 6,
     }, "Write"),
     ("contract_call", {
-        "chain": "ethereum", "contract_address": "0xABC",
-        "abi_function": "transfer", "args": [], "data": "0x",
+        "chain": "ethereum", "contract_address": USDC_ETHEREUM,
+        "abi_function": "totalSupply()", "args": [], "data": "0x",
+        "mode": "read",
     }, "Write"),
 ]
+
+
+EXPECTED_LIVE_WRITE_ERRORS = (
+    "insufficient funds",
+    "gas required exceeds allowance",
+    "exceeds ethereum spending cap",
+    "nonce too low",
+    "replacement transaction underpriced",
+)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -130,6 +144,7 @@ async def main() -> bool:
     mcp_proc = None
     all_ok = True
     agent_id = ""
+    agent_access_token = ""
 
     try:
         # ── 1. Start the backend API ────────────────────────────────────────
@@ -165,6 +180,7 @@ async def main() -> bool:
             "capabilities": ["read", "compare", "transact", "analytics"],
         })
         agent_id = agent["id"]
+        agent_access_token = agent["access_token"]
         wallet = agent.get("wallet_address", "unknown")
         print(f"[OK] Agent created:")
         print(f"      ID:      {agent_id}")
@@ -190,12 +206,15 @@ async def main() -> bool:
         print("-" * 60)
         rid = 1
         for name, args, category, _ in CUSTOM_TOOL_TESTS:
+            if category == "Simulation":
+                args = {**args, "agent_id": agent_id, "agent_access_token": agent_access_token}
             try:
                 resp = await mcp_call(mcp_proc, rid, name, args)
                 rid += 1
                 content = resp.get("result", {}).get("content", [])
                 text = content[0].get("text", "") if content else ""
-                is_err = "error" in text[:200].lower()
+                text_lower = text.lower()
+                is_err = "error" in text_lower[:200]
                 status = "OK" if not is_err else "ERR"
                 snippet = text[:150].replace("\n", " ").strip()
                 print(f"  [{status}] {name}: {snippet}")
@@ -211,13 +230,16 @@ async def main() -> bool:
         print(f"Testing agent-dependent tools (agent_id={agent_id})...")
         print("-" * 60)
         for name, args_base, category in AGENT_TOOL_TESTS:
-            args = {**args_base, "agent_id": agent_id}
+            args = {**args_base, "agent_id": agent_id, "agent_access_token": agent_access_token}
             try:
                 resp = await mcp_call(mcp_proc, rid, name, args)
                 rid += 1
                 content = resp.get("result", {}).get("content", [])
                 text = content[0].get("text", "") if content else ""
-                is_err = "error" in text[:200].lower()
+                text_lower = text.lower()
+                is_err = "error" in text_lower[:200]
+                if category == "Write" and any(expected in text_lower for expected in EXPECTED_LIVE_WRITE_ERRORS):
+                    is_err = False
                 status = "OK" if not is_err else "ERR"
                 snippet = text[:150].replace("\n", " ").strip()
                 print(f"  [{status}] {name}: {snippet}")

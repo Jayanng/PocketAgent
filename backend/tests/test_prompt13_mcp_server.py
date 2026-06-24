@@ -27,6 +27,7 @@ from backend.mcp_server.server import (
 )
 from backend.mcp_server.tools import list_mcp_tools, mcp_tool_names
 from backend.services.chain_registry import CHAIN_REGISTRY
+from backend.services.agent_auth import hash_agent_access_token
 
 
 # ─── Fakes ───────────────────────────────────────────────────────────────────
@@ -76,6 +77,16 @@ class FakeTracker:
             "timeframe": timeframe,
         }
 
+    async def get_chain_stats(self, agent_id=None, timeframe="all") -> list[dict]:
+        return [
+            {
+                "chain": "ethereum",
+                "relays": 42,
+                "avg_latency_ms": 123.4,
+                "pokt_cost": 0.0374,
+            }
+        ]
+
 
 # ─── Test case ───────────────────────────────────────────────────────────────
 
@@ -110,6 +121,17 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
         self.assertIn("chain", evm.inputSchema["properties"])
         self.assertIn("address", evm.inputSchema["properties"])
         self.assertEqual(set(evm.inputSchema.get("required", [])), {"chain", "address"})
+
+        stats = tools["get_relay_stats"]
+        self.assertIn("agent_id", stats.inputSchema["properties"])
+        self.assertIn("agent_access_token", stats.inputSchema["properties"])
+        self.assertEqual(
+            set(stats.inputSchema.get("required", [])),
+            {"agent_id", "agent_access_token"},
+        )
+
+        relay_cost = tools["estimate_relay_cost"]
+        self.assertNotIn("agent_access_token", relay_cost.inputSchema["properties"])
 
     def test_mcp_tool_names_is_sorted_and_complete(self) -> None:
         names = mcp_tool_names()
@@ -147,6 +169,43 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
         body = json.loads(result[0].text)
         self.assertIn("error", body)
         self.assertIn("agent_id", body["error"])
+
+    def test_call_tool_agent_scoped_analytics_without_access_token_returns_error(self) -> None:
+        result = self._run(handle_call_tool("get_relay_stats", {
+            "agent_id": "agent-a",
+            "timeframe": "all",
+        }))
+        body = json.loads(result[0].text)
+        self.assertIn("error", body)
+        self.assertIn("agent_access_token", body["error"])
+
+    def test_call_tool_agent_scoped_analytics_requires_valid_access_token(self) -> None:
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        db_path = os.path.join(tmp.name, "pa-analytics.db")
+        try:
+            self._seed_agent(db_path, agent_id="agent-a", chains=["ethereum"], access_token="secret-token")
+            fake_rpc = FakeRPC()
+            fake_rpc.settings = type("S", (), {"database_path": db_path})()
+            fake_tracker = FakeTracker()
+            with patch("backend.mcp_server.server._rpc_client", fake_rpc), \
+                 patch("backend.mcp_server.server._relay_tracker", fake_tracker):
+                denied = self._run(handle_call_tool("get_relay_stats", {
+                    "agent_id": "agent-a",
+                    "agent_access_token": "wrong-token",
+                    "timeframe": "all",
+                }))
+                allowed = self._run(handle_call_tool("get_relay_stats", {
+                    "agent_id": "agent-a",
+                    "agent_access_token": "secret-token",
+                    "timeframe": "all",
+                }))
+
+            self.assertIn("error", json.loads(denied[0].text))
+            allowed_body = json.loads(allowed[0].text)
+            self.assertNotIn("error", allowed_body)
+            self.assertEqual(allowed_body["total_relays"], 42)
+        finally:
+            tmp.cleanup()
 
     # ── Resources ────────────────────────────────────────────────────────────
 
@@ -204,12 +263,53 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
         self.assertEqual(body["hits"], 7)
         self.assertEqual(body["relays_saved"], 7)
 
-    def test_read_resource_agent_stats(self) -> None:
+    def test_read_resource_agent_stats_requires_access_token(self) -> None:
         contents = self._run(read_resource_contents(
             "pocket://agents/some-agent/stats", rpc=FakeRPC(), tracker=FakeTracker()
         ))
         body = json.loads(contents[0].content)
-        self.assertEqual(body["total_relays"], 42)
+        self.assertIn("error", body)
+        self.assertIn("agent_access_token", body["error"])
+
+    def test_read_resource_agent_stats_with_valid_access_token(self) -> None:
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        db_path = os.path.join(tmp.name, "pa-resource.db")
+        try:
+            self._seed_agent(db_path, agent_id="agent-r", chains=["ethereum"], access_token="secret-token")
+            rpc = FakeRPC()
+            rpc.settings = type("S", (), {"database_path": db_path})()
+
+            contents = self._run(read_resource_contents(
+                "pocket://agents/agent-r/stats?agent_access_token=secret-token",
+                rpc=rpc,
+                tracker=FakeTracker(),
+            ))
+
+            body = json.loads(contents[0].content)
+            self.assertNotIn("error", body)
+            self.assertEqual(body["total_relays"], 42)
+        finally:
+            tmp.cleanup()
+
+    def test_read_resource_agent_wallet_rejects_wrong_access_token(self) -> None:
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        db_path = os.path.join(tmp.name, "pa-resource-wallet.db")
+        try:
+            self._seed_agent(db_path, agent_id="agent-r", chains=["ethereum"], access_token="secret-token")
+            rpc = FakeRPC()
+            rpc.settings = type("S", (), {"database_path": db_path})()
+
+            contents = self._run(read_resource_contents(
+                "pocket://agents/agent-r/wallet?agent_access_token=wrong-token",
+                rpc=rpc,
+                tracker=FakeTracker(),
+            ))
+
+            body = json.loads(contents[0].content)
+            self.assertIn("error", body)
+            self.assertIn("agent_access_token", body["error"])
+        finally:
+            tmp.cleanup()
 
     def test_read_resource_unsupported_uri(self) -> None:
         contents = self._run(read_resource_contents(
@@ -286,6 +386,7 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
                 bad = self._run(handle_call_tool("send_transaction", {
                     "chain": "ethereum", "to_address": "0xDEF", "amount": "0.01",
                     "agent_id": "does-not-exist",
+                    "agent_access_token": "secret-token",
                 }))
                 self.assertIn("error", json.loads(bad[0].text))
         finally:
@@ -294,7 +395,12 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
     # ─── helpers ─────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _seed_agent(db_path: str, agent_id: str, chains: list[str]) -> None:
+    def _seed_agent(
+        db_path: str,
+        agent_id: str,
+        chains: list[str],
+        access_token: str = "secret-token",
+    ) -> None:
         now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(db_path) as conn:
             conn.execute(
@@ -302,6 +408,7 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
                 CREATE TABLE IF NOT EXISTS agents (
                     id TEXT PRIMARY KEY, name TEXT, description TEXT, chains TEXT,
                     capabilities TEXT, encrypted_private_key TEXT, wallet_address TEXT,
+                    access_token_hash TEXT,
                     spending_cap REAL, total_spent REAL, is_active INTEGER,
                     created_at TEXT, updated_at TEXT
                 )
@@ -310,15 +417,16 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
             conn.execute(
                 """
                 INSERT INTO agents (id, name, description, chains, capabilities,
-                                    encrypted_private_key, wallet_address,
+                                    encrypted_private_key, wallet_address, access_token_hash,
                                     spending_cap, total_spent, is_active,
                                     created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                 """,
                 (
                     agent_id, "Transact Agent", "test", json.dumps(chains),
                     json.dumps(["read", "transact", "compare"]),
-                    "encrypted-blob", "0xWALLET", 0.1, 0.0, now, now,
+                    "encrypted-blob", "0xWALLET", hash_agent_access_token(access_token),
+                    0.1, 0.0, now, now,
                 ),
             )
             conn.commit()

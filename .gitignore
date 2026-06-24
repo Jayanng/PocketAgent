@@ -1,10 +1,10 @@
-# ─── Secrets (never commit) ───────────────────────────
+# Secrets
 .env
 .env.local
 .env.*.local
 # Keep .env.example templates tracked.
 
-# ─── Python ───────────────────────────────────────────
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -14,34 +14,42 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
-# ─── Databases (created at runtime by init_db) ────────
+# Databases and runtime data
 *.db
 *.db-journal
 *.sqlite
 *.sqlite3
+backend/data/*
+!backend/data/.gitkeep
 
-# ─── Logs ─────────────────────────────────────────────
+# Logs
 *.log
 backendserver.err.log
 backendserver.out.log
+frontend-server.err.log
 
-# ─── Node / Next (frontend/.gitignore also covers these) ──
+# Node / Next
 node_modules/
 .next/
 out/
 build/
 dist/
+npm-debug.log*
 
-# ─── Tooling / skill artifacts ────────────────────────
+# Local/generated analysis artifacts
+nul
+pocketagent-analysis.md
+
+# Tooling / skill artifacts
 .hallmark/
 .superpowers/
 
-# ─── OS ───────────────────────────────────────────────
+# OS
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# ─── Editor / local settings ──────────────────────────
+# Editor / local settings
 .vscode/
 .idea/
 .claude/

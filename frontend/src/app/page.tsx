@@ -50,7 +50,7 @@ const EDGES: Array<[number, number]> = [
 ];
 
 const STATS = [
-  { value: "60+", label: "Chains Supported", suffix: "" },
+  { value: "52", label: "Chains Supported", suffix: "" },
   { value: "6", label: "Protocol Families", suffix: "" },
   { value: "49", label: "MCP Tools", suffix: "" },
   { value: "100", label: "Uptime", suffix: "%" },
@@ -60,7 +60,7 @@ const FEATURES = [
   {
     title: "Multi-Chain Intelligence",
     description:
-      "Deploy agents that read, compare, and transact across 60+ blockchains through a single Pocket Network RPC interface. One call, any chain.",
+      "Deploy agents that read and compare 52 blockchains through a single Pocket Network RPC interface, with guarded native transaction signing on EVM, Solana, and Tron.",
     icon: Layers,
     span: "large" as const,
     gradient: "var(--gradient-blue)",
@@ -85,9 +85,9 @@ const FEATURES = [
     imageSeed: "distributed-network-dots",
   },
   {
-    title: "60+ Chain Network",
+    title: "52-Chain Network",
     description:
-      "EVM, Solana, Sui, Near, Tron, Cosmos - one unified interface across every major protocol family. Live RPC endpoints for all supported chains.",
+      "EVM, Solana, Sui, Near, Tron, Cosmos — one unified interface across every major protocol family. Live RPC endpoints for all supported chains.",
     icon: Globe,
     span: "large" as const,
     gradient: "var(--gradient-blue)",
@@ -368,9 +368,10 @@ export default function Home() {
             variants={itemVariants}
             className="mt-6 max-w-lg text-[15px] leading-relaxed text-white/45 md:text-base"
           >
-            Deploy autonomous agents that read, compare, and transact across
-            60+ blockchains through a single decentralized interface. No
-            gatekeepers. No central RPC provider.
+            Deploy autonomous agents that read and compare 52 blockchains
+            through a single decentralized interface, with guarded native
+            transaction signing on EVM, Solana, and Tron. No gatekeepers. No
+            central RPC provider.
           </motion.p>
 
           <motion.div
@@ -421,8 +422,9 @@ export default function Home() {
             Everything a multi-chain agent needs
           </h2>
           <p className="mt-4 text-[15px] text-white/40">
-            Read, compare, and transact across every major blockchain
-            protocol from a single agent interface.
+            Read and compare every major blockchain protocol from a single
+            agent interface, with live native transfers for EVM, Solana, and
+            Tron.
           </p>
         </motion.div>
 

@@ -26,7 +26,30 @@ async def estimate_transaction_cost(context: ToolContext, args: dict[str, Any]) 
     chain = validate_chain_allowed(context, str(args["chain"]))
     operation_type = str(args["operation_type"])
     gas_units = {"native_transfer": 21_000, "erc20_transfer": 65_000, "contract_call": 120_000}.get(operation_type, 21_000)
-    return await context.rpc_client.estimate_gas(chain, {"from": args.get("from_address"), "gas": hex(gas_units)})
+    gas = await context.rpc_client.get_gas_price(chain)
+    gas_price_gwei = gas.get("gas_price_gwei")
+    protocol = context.rpc_client.get_protocol(chain)
+
+    if protocol == "evm" and gas_price_gwei is not None:
+        estimated_native = float(gas_price_gwei) * gas_units / 1_000_000_000
+        return {
+            "chain": chain,
+            "protocol": protocol,
+            "operation_type": operation_type,
+            "gas_units": gas_units,
+            "gas_price_gwei": gas_price_gwei,
+            "estimated_native_fee": estimated_native,
+            "gas": gas,
+        }
+
+    return {
+        "chain": chain,
+        "protocol": protocol,
+        "operation_type": operation_type,
+        "gas_units": gas_units,
+        "estimated_native_fee": gas.get("estimated_native_fee"),
+        "gas": gas,
+    }
 
 
 TOOLS = [

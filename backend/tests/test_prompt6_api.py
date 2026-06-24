@@ -21,6 +21,7 @@ class Prompt6APITestCase(unittest.TestCase):
                 "ENCRYPTION_KEY": "test-encryption-key",
                 "JWT_SECRET": "",
                 "OPENAI_API_KEY": "",
+                "GMI_API_KEY": "",
             },
             clear=False,
         )
@@ -53,6 +54,10 @@ class Prompt6APITestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
+
+    @staticmethod
+    def auth_headers(agent: dict) -> dict[str, str]:
+        return {"X-Agent-Access-Token": agent["access_token"]}
 
     def seed_conversation(self, agent_id: str, with_messages: bool = False) -> str:
         conversation_id = str(uuid.uuid4())
@@ -101,48 +106,60 @@ class Prompt6APITestCase(unittest.TestCase):
         created = self.create_agent()
         agent_id = created["id"]
         self.assertTrue(created["wallet_address"].startswith("0x"))
+        self.assertTrue(created["wallet_addresses"]["evm"].startswith("0x"))
+        self.assertIn("solana", created["wallet_addresses"])
+        self.assertIn("tron", created["wallet_addresses"])
 
         agents = self.client.get("/api/agents")
         self.assertEqual(agents.status_code, 200)
-        self.assertIn(agent_id, {agent["id"] for agent in agents.json()})
+        listed_agent = next(agent for agent in agents.json() if agent["id"] == agent_id)
+        self.assertNotIn("wallet_address", listed_agent)
+        self.assertNotIn("wallet_addresses", listed_agent)
 
-        detail = self.client.get(f"/api/agents/{agent_id}")
+        detail = self.client.get(f"/api/agents/{agent_id}", headers=self.auth_headers(created))
         self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["wallet_address"], created["wallet_address"])
+        self.assertEqual(detail.json()["wallet_addresses"]["solana"], created["wallet_addresses"]["solana"])
         self.assertNotIn("encrypted_private_key", detail.json())
+        self.assertNotIn("access_token_hash", detail.json())
 
         updated = self.client.put(
             f"/api/agents/{agent_id}",
             json={"name": "Renamed Agent", "spending_cap": 0.25},
+            headers=self.auth_headers(created),
         )
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(updated.json()["name"], "Renamed Agent")
         self.assertEqual(updated.json()["spending_cap"], 0.25)
 
-        fund = self.client.post(f"/api/agents/{agent_id}/fund")
+        fund = self.client.post(f"/api/agents/{agent_id}/fund", headers=self.auth_headers(created))
         self.assertEqual(fund.status_code, 200)
         self.assertEqual(fund.json()["wallet_address"], created["wallet_address"])
+
+        solana_fund = self.client.post(f"/api/agents/{agent_id}/fund?chain=solana", headers=self.auth_headers(created))
+        self.assertEqual(solana_fund.status_code, 200)
+        self.assertEqual(solana_fund.json()["protocol"], "solana")
+        self.assertEqual(solana_fund.json()["wallet_address"], created["wallet_addresses"]["solana"])
 
     def test_agent_balances_endpoint_uses_agent_wallet_and_chains(self) -> None:
         created = self.create_agent()
 
         class FakePocketRPCClient:
-            async def multi_chain_balance(self, address: str, chains: list[str]) -> dict:
+            def get_protocol(self, chain: str) -> str:
+                return "evm"
+
+            async def get_balance(self, chain: str, address: str) -> dict:
                 self_address = created["wallet_address"]
                 assert address == self_address
-                assert chains == ["ethereum"]
+                assert chain == "ethereum"
                 return {
-                    "address": address,
-                    "balances": {
-                        "ethereum": {
-                            "formatted": "0 ETH",
-                            "symbol": "ETH",
-                            "usd_value": 0,
-                        }
-                    },
+                    "formatted": "0 ETH",
+                    "symbol": "ETH",
+                    "usd_value": 0,
                 }
 
         with patch("backend.routers.agents.PocketRPCClient", FakePocketRPCClient):
-            response = self.client.get(f"/api/agents/{created['id']}/balances")
+            response = self.client.get(f"/api/agents/{created['id']}/balances", headers=self.auth_headers(created))
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["wallet_address"], created["wallet_address"])
@@ -152,17 +169,20 @@ class Prompt6APITestCase(unittest.TestCase):
         created = self.create_agent()
         agent_id = created["id"]
 
-        deleted = self.client.delete(f"/api/agents/{agent_id}")
+        deleted = self.client.delete(f"/api/agents/{agent_id}", headers=self.auth_headers(created))
         self.assertEqual(deleted.status_code, 204)
 
-        self.assertEqual(self.client.post(f"/api/agents/{agent_id}/fund").status_code, 410)
+        agents = self.client.get("/api/agents")
+        self.assertEqual(agents.status_code, 200)
+        self.assertNotIn(agent_id, {agent["id"] for agent in agents.json()})
+        self.assertEqual(self.client.post(f"/api/agents/{agent_id}/fund", headers=self.auth_headers(created)).status_code, 410)
         self.assertEqual(
-            self.client.put(f"/api/agents/{agent_id}", json={"name": "Blocked"}).status_code,
+            self.client.put(f"/api/agents/{agent_id}", json={"name": "Blocked"}, headers=self.auth_headers(created)).status_code,
             410,
         )
-        self.assertEqual(self.client.get(f"/api/conversations?agent_id={agent_id}").status_code, 410)
+        self.assertEqual(self.client.get(f"/api/conversations?agent_id={agent_id}", headers=self.auth_headers(created)).status_code, 410)
         self.assertEqual(
-            self.client.post("/api/chat", json={"agent_id": agent_id, "message": "hello"}).status_code,
+            self.client.post("/api/chat", json={"agent_id": agent_id, "message": "hello"}, headers=self.auth_headers(created)).status_code,
             410,
         )
 
@@ -170,18 +190,18 @@ class Prompt6APITestCase(unittest.TestCase):
         created = self.create_agent()
         conversation_id = self.seed_conversation(created["id"], with_messages=True)
 
-        conversations = self.client.get(f"/api/conversations?agent_id={created['id']}")
+        conversations = self.client.get(f"/api/conversations?agent_id={created['id']}", headers=self.auth_headers(created))
         self.assertEqual(conversations.status_code, 200)
         self.assertEqual(conversations.json()[0]["id"], conversation_id)
 
-        messages = self.client.get(f"/api/conversations/{conversation_id}/messages")
+        messages = self.client.get(f"/api/conversations/{conversation_id}/messages", headers=self.auth_headers(created))
         self.assertEqual(messages.status_code, 200)
         self.assertEqual([message["role"] for message in messages.json()], ["user", "assistant"])
         self.assertEqual(messages.json()[1]["chain_calls"], [{"tool": "evm_get_balance"}])
 
-        deleted = self.client.delete(f"/api/conversations/{conversation_id}")
+        deleted = self.client.delete(f"/api/conversations/{conversation_id}", headers=self.auth_headers(created))
         self.assertEqual(deleted.status_code, 204)
-        self.assertEqual(self.client.get(f"/api/conversations/{conversation_id}/messages").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/conversations/{conversation_id}/messages", headers=self.auth_headers(created)).status_code, 404)
 
     def test_chat_success_response_shape_is_stable_without_openai(self) -> None:
         created = self.create_agent()
@@ -201,6 +221,7 @@ class Prompt6APITestCase(unittest.TestCase):
             response = self.client.post(
                 "/api/chat",
                 json={"agent_id": created["id"], "message": "hello"},
+                headers=self.auth_headers(created),
             )
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -226,6 +247,7 @@ class Prompt6APITestCase(unittest.TestCase):
                 "message": "hello",
                 "conversation_id": "missing",
             },
+            headers=self.auth_headers(agent_one),
         )
         self.assertEqual(missing.status_code, 404)
 
@@ -236,14 +258,25 @@ class Prompt6APITestCase(unittest.TestCase):
                 "message": "hello",
                 "conversation_id": agent_two_conversation,
             },
+            headers=self.auth_headers(agent_one),
         )
         self.assertEqual(wrong_owner.status_code, 403)
 
         no_openai = self.client.post(
             "/api/chat",
             json={"agent_id": agent_one["id"], "message": "hello"},
+            headers=self.auth_headers(agent_one),
         )
         self.assertEqual(no_openai.status_code, 503)
+
+    def test_agent_access_token_is_required_for_sensitive_routes(self) -> None:
+        created = self.create_agent()
+        self.assertIn("access_token", created)
+        self.assertEqual(self.client.get(f"/api/agents/{created['id']}").status_code, 403)
+        self.assertEqual(
+            self.client.post("/api/chat", json={"agent_id": created["id"], "message": "hello"}).status_code,
+            403,
+        )
 
     def test_agent_creation_requires_configured_encryption_key(self) -> None:
         from backend.config import get_settings
@@ -259,6 +292,22 @@ class Prompt6APITestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertIn("ENCRYPTION_KEY", response.json()["detail"])
+
+    def test_relative_database_path_resolves_from_backend_directory(self) -> None:
+        from pathlib import Path
+
+        from backend.config import BACKEND_DIR, get_settings
+
+        get_settings.cache_clear()
+        with patch.dict(os.environ, {"DATABASE_PATH": "data/relative-test.db"}, clear=False):
+            get_settings.cache_clear()
+            settings = get_settings()
+        get_settings.cache_clear()
+
+        self.assertEqual(
+            Path(settings.database_path),
+            (BACKEND_DIR / "data" / "relative-test.db").resolve(),
+        )
 
 
 if __name__ == "__main__":

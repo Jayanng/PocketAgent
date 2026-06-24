@@ -1,17 +1,22 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
 try:
     from ..config import get_settings
+    from ..database import get_agent, get_db
+    from ..services.agent_auth import verify_agent_access_token
     from ..services.chain_registry import CHAIN_REGISTRY
     from ..services.pocket_rpc import PocketRPCClient
     from ..services.price_feed import PriceFeedService
     from ..services.relay_tracker import RelayTrackerService
 except ImportError:
     from config import get_settings
+    from database import get_agent, get_db
+    from services.agent_auth import verify_agent_access_token
     from services.chain_registry import CHAIN_REGISTRY
     from services.pocket_rpc import PocketRPCClient
     from services.price_feed import PriceFeedService
@@ -40,10 +45,31 @@ def _prices() -> PriceFeedService:
     return PriceFeedService()
 
 
+async def _require_agent_access_if_scoped(
+    agent_id: str | None,
+    access_token: str | None,
+    db: Any,
+) -> None:
+    if not agent_id:
+        return
+    agent = await get_agent(db, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not agent.get("is_active", True):
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Agent is inactive")
+    if not verify_agent_access_token(agent, access_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Valid X-Agent-Access-Token header is required for this agent.",
+        )
+
+
 @router.get("/relay-stats")
 async def relay_stats(
     agent_id: str | None = Query(None),
     timeframe: str = Query("all", pattern="^(day|week|all)$"),
+    access_token: str | None = Header(None, alias="X-Agent-Access-Token"),
+    db=Depends(get_db),
 ):
     """Pocket relay statistics aggregated from relay_logs.
 
@@ -52,6 +78,7 @@ async def relay_stats(
     NOTIONAL_POKT_PER_RELAY), not an on-chain charge — the public portal
     costs the user zero POKT. See config.NOTIONAL_POKT_PER_RELAY.
     """
+    await _require_agent_access_if_scoped(agent_id, access_token, db)
     tracker = _tracker()
     summary = await tracker.get_relay_stats(agent_id=agent_id, timeframe=timeframe)
     per_chain = await tracker.get_chain_stats(agent_id=agent_id, timeframe=timeframe)
@@ -83,7 +110,7 @@ async def chain_health(live: bool = Query(False)):
     Pocket RPC; the remaining registry chains are returned with their
     metadata and a "registered" status (no live block height). This keeps
     the 30s dashboard poll cheap — ~7 relays, not 52 — while still showing
-    the full 60+ chain breadth that is PocketAgent's core value prop.
+    the full chain breadth that is PocketAgent's core value prop.
 
     With `live=true` every chain is probed concurrently. Use this for the
     on-demand "Check all chains" button (one-off, not the timer). Total
@@ -171,6 +198,8 @@ async def chain_health(live: bool = Query(False)):
 async def cost_tracker(
     agent_id: str | None = Query(None),
     timeframe: str = Query("all", pattern="^(day|week|all)$"),
+    access_token: str | None = Header(None, alias="X-Agent-Access-Token"),
+    db=Depends(get_db),
 ):
     """Estimated Pocket relay costs in POKT, broken down per chain.
 
@@ -179,6 +208,7 @@ async def cost_tracker(
     `total_relays + cache_hits` relays, so the delta is the POKT value of
     the cache hits. Notional — public-portal users pay zero POKT.
     """
+    await _require_agent_access_if_scoped(agent_id, access_token, db)
     settings = get_settings()
     tracker = _tracker()
     summary = await tracker.get_relay_stats(agent_id=agent_id, timeframe=timeframe)
@@ -233,7 +263,7 @@ async def portfolio(
     if unknown:
         raise HTTPException(
             status_code=400,
-            detail=f"unknown chain(s): {unknown}. See /chains for the registry.",
+            detail=f"unknown chain(s): {unknown}. See the supported-chain registry in /api/analytics/chain-health.",
         )
 
     rpc = _rpc()

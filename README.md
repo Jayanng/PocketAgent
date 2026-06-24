@@ -1,293 +1,192 @@
 # PocketAgent
 
-**AI agents for the multi-chain world — powered by [Pocket Network](https://www.pokt.network/).**
+**Enterprise-grade AI agent platform for the multi-chain ecosystem — powered by [Pocket Network](https://www.pokt.network/).**
 
-PocketAgent is a full-stack platform for creating, managing, and conversing with AI
-agents that read and compare **52 blockchains** through Pocket Network's decentralized
-RPC infrastructure. Agents reason about balances, gas, and chain health across EVM,
-Solana, Sui, Near, Tron, and Cosmos — with guarded native transaction signing on EVM,
-Solana, and Tron. Drive them through the web UI, the REST API, or any MCP-compatible
-client, all using the same 49 on-chain tools.
+PocketAgent is a production-ready, full-stack platform designed to create, coordinate, and orchestrate AI agents across **52 distinct blockchains** using Pocket Network's decentralized, trustless RPC infrastructure. 
 
-[![CI](https://github.com/Jayanng/PocketAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/Jayanng/PocketAgent/actions/workflows/ci.yml)
-![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
-![Chains](https://img.shields.io/badge/chains-52-purple)
+Agents can reason about multi-chain states, query balances, analyze gas fees, and evaluate network latency across EVM, Solana, Sui, Near, Tron, and Cosmos protocols, with built-in transaction signing guards on EVM, Solana, and Tron. Interact with your agents via a polished web dashboard, a developer-friendly REST API, or any client compatible with the Model Context Protocol (MCP).
 
 ---
 
-## Why PocketAgent
+## Key Features
 
-- **One interface, six protocols.** EVM, Solana, Sui, Near, Tron, and Cosmos behind a
-  single agent — no per-chain SDKs to wire up.
-- **No centralized RPC keys.** Every request routes through Pocket Network's public
-  Shannon gateway (`{chain}.api.pocket.network`); there is nothing to sign up for or pay.
-- **49 tools, function-calling ready.** Balances, gas comparison, chain routing, wallet
-  analysis, simulation, and guarded writes — exposed to the LLM as OpenAI-style tools and
-  to MCP clients as MCP tools.
-- **Agent wallets with guardrails.** Per-agent encrypted EVM, Solana, and Tron keys with
-  per-chain spending caps enforced *before* broadcast.
-- **Built to stay up.** A degraded upstream chain returns a structured "unavailable"
-  result instead of crashing the agent turn — one bad chain never breaks the rest.
-- **Observable by default.** Relay stats, chain health, and cost tracking surface in the
-  dashboard and via analytics endpoints.
+* **Unified Protocol Interface**: Access EVM, Solana, Sui, Near, Tron, and Cosmos families under a single, standardized agent toolset.
+* **Decentralized RPC Gateway**: Zero centralized API keys required. All requests route dynamically through the public Pocket Network Shannon gateway (`https://{chain}.api.pocket.network`).
+* **MCP Compatibility**: Native support for the Model Context Protocol (MCP). Integrate agent workflows directly into developer environments such as Claude Desktop, Cursor, or Codex.
+* **Guarded Transaction Signing**: Per-agent encrypted keys (EVM, Solana, Tron) with configurable, protocol-enforced spending caps checked prior to broadcast.
+* **Fault-Tolerant Execution**: Resilient fallback routines handle degraded upstream RPC nodes gracefully, returning structured status payloads instead of failing agent turns.
+* **Operational Observability**: Real-time stats, relay volume, latency comparison, and cost tracking out-of-the-box.
 
 ---
 
-## Architecture
+## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Frontend (Next.js 16 · React 19)                        │
-│  Chat · Dashboard · Agent management · Wallet (Wagmi)   │
+│              Next.js 16 · React 19 Frontend             │
+│    Sleek Chat · Dashboard · Agent Profiles · Wallet     │
 ├─────────────────────────────────────────────────────────┤
-│  Backend (FastAPI · SQLite)                              │
-│  AI agent service · PocketRPC · Chain router · MCP       │
+│                FastAPI · SQLite Backend                 │
+│      AI Orchestrator · PocketRPC · MCP Server Core      │
 ├─────────────────────────────────────────────────────────┤
-│  Pocket Network (decentralized RPC, Shannon gateway)     │
+│            Pocket Network Shannon Gateway               │
+│        Decentralized RPC Infrastructure (52 Chains)     │
 └─────────────────────────────────────────────────────────┘
 ```
 
-| Layer    | Stack                                                                   |
-| -------- | ----------------------------------------------------------------------- |
-| Frontend | Next.js 16, React 19, Tailwind CSS 4, RainbowKit, Wagmi, Zustand       |
-| Backend  | FastAPI, SQLite (aiosqlite), OpenAI function calling, MCP              |
-| RPC      | Pocket Network Shannon endpoints across 52 chains / 6 protocol families |
+| Layer | Technology Stack |
+| :--- | :--- |
+| **Frontend** | Next.js 16, React 19, Tailwind CSS 4, RainbowKit, Wagmi, Zustand |
+| **Backend** | FastAPI, SQLite (aiosqlite), OpenAI Function Calling, MCP |
+| **RPC Gateway** | Pocket Network Shannon endpoints spanning 52 chains & 6 major protocol families |
 
 ---
 
-## Quick start
+## Quick Start
 
-### Docker (recommended)
+### 1. Docker Deployment (Recommended)
+
+To run the complete suite containing the frontend, backend, and database:
 
 ```bash
+# 1. Initialize environment variables
 cp backend/.env.example backend/.env
-# Edit backend/.env: set OPENAI_API_KEY, ENCRYPTION_KEY, JWT_SECRET
 
-# Set frontend build-time values in the root .env (or your shell):
-#   NEXT_PUBLIC_API_URL=http://localhost:8000
-#   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=<your-walletconnect-project-id>
+# 2. Configure backend/.env with OPENAI_API_KEY, ENCRYPTION_KEY, and JWT_SECRET
 
+# 3. Configure frontend variables in root .env or shell environment:
+#    NEXT_PUBLIC_API_URL=http://localhost:8000
+#    NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=<your-walletconnect-project-id>
+
+# 4. Spin up the containers
 docker compose up --build
-# Frontend: http://localhost:3000
-# Backend:  http://localhost:8000
 ```
+* The Web UI will be active at `http://localhost:3000`
+* The API Server will be active at `http://localhost:8000`
 
-### Manual setup
+---
+
+### 2. Manual Installation
 
 #### Prerequisites
+* Node.js v20+
+* Python v3.11+
+* OpenAI-compatible API credentials (or GMI Serving key)
+* WalletConnect Project ID (obtainable via [WalletConnect Cloud](https://cloud.walletconnect.com/))
 
-- **Node.js** 20+
-- **Python** 3.11+
-- An **OpenAI-compatible API key** (OpenAI or [GMI Serving](https://gmi-serving.com/))
-- A [WalletConnect](https://cloud.walletconnect.com/) project ID
-
-#### 1. Clone
-
-```bash
-git clone https://github.com/Jayanng/PocketAgent.git
-cd PocketAgent
-```
-
-#### 2. Backend
+#### Backend Setup
 
 ```bash
 cd backend
 python -m venv .venv
 
-# Windows
+# Activate Virtual Environment
+# Windows:
 .venv\Scripts\activate
-# macOS / Linux
+# macOS/Linux:
 source .venv/bin/activate
 
+# Install dependencies and setup environment
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env — set OPENAI_API_KEY (or GMI_API_KEY), ENCRYPTION_KEY, and JWT_SECRET
+
+# Edit .env to set OPENAI_API_KEY, ENCRYPTION_KEY, and JWT_SECRET
 ```
 
-Start the API:
-
+Start the API development server:
 ```bash
 python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
+API Documentation will be available at: `http://127.0.0.1:8000/docs`
 
-Interactive API docs: <http://127.0.0.1:8000/docs>
+#### Frontend Setup
 
-#### 3. Frontend
-
-In a second terminal:
-
+In a separate terminal window:
 ```bash
 cd frontend
 npm install
 cp .env.example .env.local
-# Edit .env.local — set NEXT_PUBLIC_API_URL and a real NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+
+# Edit .env.local and configure NEXT_PUBLIC_API_URL and NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
 npm run dev
 ```
-
-Open <http://localhost:3000>.
-
----
-
-## Environment variables
-
-### Backend (`backend/.env`)
-
-| Variable             | Description                                                                                  |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`     | API key for the LLM provider (OpenAI)                                                        |
-| `GMI_API_KEY`        | API key for GMI Serving (used when `OPENAI_BASE_URL` points at `gmi-serving.com`)            |
-| `OPENAI_BASE_URL`    | OpenAI-compatible base URL (default: `https://api.openai.com/v1`)                            |
-| `OPENAI_MODEL`       | Model name (e.g. `gpt-4o`, `openai/gpt-5.4-mini`)                                            |
-| `ENCRYPTION_KEY`     | 32-byte key for agent wallet encryption (required)                                           |
-| `JWT_SECRET`         | Secret for token signing (required)                                                           |
-| `DATABASE_PATH`      | SQLite database path (default: `./data/pocketagent.db`; relative paths resolve from `backend/`) |
-| `CORS_ORIGINS`       | Comma-separated browser origins allowed to call the API (default: local Next.js dev origins)  |
-| `COINGECKO_API_KEY`  | Optional CoinGecko key for USD price enrichment                                              |
-| `NOTIONAL_POKT_PER_RELAY` | Notional POKT cost per relay for cost estimates (default: `0.00089`)                    |
-
-> Per-chain RPC URLs are defined in `backend/services/chain_registry.py` and are not
-> currently overridable via environment variables. The `POCKET_RPC_*` keys in
-> `.env.example` are retained for backward reference only.
-
-### Frontend (`frontend/.env.local`)
-
-| Variable                          | Description                                                               |
-| --------------------------------- | ------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_API_URL`             | Backend URL (default: `http://localhost:8000`)                            |
-| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Required WalletConnect Cloud project ID. Placeholder values are rejected at startup. |
-
-For Docker, set the frontend variables in the root `.env` (or your shell) before
-`docker compose up --build`; Next.js embeds `NEXT_PUBLIC_*` values into the browser
-bundle during the image build.
+Access the application at `http://localhost:3000`.
 
 ---
 
-## Supported chains
+## Environment Variables Configuration
 
-PocketAgent reads **52 mainnet chains** across six protocol families through the Pocket
-Network Shannon gateway. Each chain is reachable at `https://{slug}.api.pocket.network`.
+### Backend Config (`backend/.env`)
 
-| Protocol | Examples                                                       |
-| -------- | -------------------------------------------------------------- |
-| EVM      | Ethereum, Polygon, Arbitrum, Optimism, Base, BNB, Blast, Sonic |
-| Cosmos   | Osmosis, Akash, Juno, Persistence, AtomOne, Seda, Fetch        |
-| Solana   | Solana                                                         |
-| Sui      | Sui                                                            |
-| Near     | Near                                                           |
-| Tron     | Tron (EVM-compatible JSON-RPC + native REST)                   |
+| Variable | Required | Description |
+| :--- | :---: | :--- |
+| `OPENAI_API_KEY` | Yes | API credential for the language model provider |
+| `OPENAI_BASE_URL` | No | Target OpenAI-compatible API base (default: `https://api.openai.com/v1`) |
+| `OPENAI_MODEL` | No | Target model name (e.g. `gpt-4o`) |
+| `ENCRYPTION_KEY` | Yes | 32-byte key used to securely encrypt agent wallets |
+| `JWT_SECRET` | Yes | Signing key for authentication tokens |
+| `DATABASE_PATH` | No | SQLite database file location (default: `./data/pocketagent.db`) |
+| `CORS_ORIGINS` | No | Allowed CORS domains (comma-separated) |
+| `COINGECKO_API_KEY` | No | Optional CoinGecko API key for asset valuation |
+| `NOTIONAL_POKT_PER_RELAY` | No | Estimated POKT cost configuration per RPC relay (default: `0.00089`) |
 
-The full, authoritative list lives in `backend/services/chain_registry.py`
-(and is mirrored in `frontend/src/lib/constants.ts`).
+### Frontend Config (`frontend/.env.local`)
 
----
-
-## Tool categories
-
-| Category     | Examples                                                                                   |
-| ------------ | ------------------------------------------------------------------------------------------ |
-| **Read**     | `evm_get_balance`, `solana_get_balance`, `cosmos_get_balance`, `evm_get_block`, `list_chains` |
-| **Compare**  | `compare_chains`, `recommend_chain`, `estimate_transaction_cost`                          |
-| **Transact** | `send_transaction`, `send_erc20`, `contract_call` (EVM/Solana/Tron; other protocols defer) |
-| **Analytics**| `analyze_wallet`, `get_relay_stats`, `get_cost_breakdown`                                 |
-| **POKT**     | Pocket Network relay and notional cost tools                                               |
+| Variable | Required | Description |
+| :--- | :---: | :--- |
+| `NEXT_PUBLIC_API_URL` | Yes | Base URL pointing to the backend API server |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Yes | Required WalletConnect project identifier |
 
 ---
 
-## MCP server
+## Supported Ecosystems
 
-PocketAgent ships an MCP (Model Context Protocol) server that exposes all 49 tools, 5
-resources, and 4 prompts over stdio. From the `backend` directory:
+PocketAgent interfaces with **52 production networks** across six major protocol architectures:
 
+| Protocol | Scope | Supported Networks (Examples) |
+| :--- | :---: | :--- |
+| **EVM** | 40+ chains | Ethereum, Polygon, Arbitrum, Optimism, Base, BNB, Sonic, Blast, Scroll |
+| **Solana** | L1 | Solana Mainnet-Beta |
+| **Sui** | L1 | Sui Mainnet |
+| **Near** | L1 | Near Protocol Mainnet |
+| **Cosmos** | App-Chains | Osmosis, Akash, Juno, Persistence, AtomOne, Seda, Fetch.ai |
+| **Tron** | L1 | Tron Mainnet (JSON-RPC & REST APIs) |
+
+*Authoritative registry is defined in `backend/services/chain_registry.py`.*
+
+---
+
+## Tool Categories
+
+PocketAgent features **49 predefined tools** exposed to the LLM agent and MCP interface:
+
+1. **Read-only State**: `evm_get_balance`, `solana_get_balance`, `cosmos_get_balance`, `evm_get_block`, `list_chains`.
+2. **Comparison Engines**: Gas fee comparison, network latency check, chain recommendation models.
+3. **Transaction Execution**: `send_transaction`, `send_erc20`, `contract_call` (guarded EVM, Solana, and Tron writes).
+4. **Analytics & Metrics**: Wallet analysis, Pocket Network stats, relay performance metrics.
+
+---
+
+## Model Context Protocol (MCP) Integration
+
+The backend serves as a standalone MCP server, enabling LLMs in external clients (such as Claude Desktop, Cursor, or Codex) to execute the 49 blockchain tools natively.
+
+From the `backend` folder:
 ```bash
 python -m mcp_server.server
 ```
-
-Compatible with Claude Desktop, Cursor, Codex, and any other MCP client.
-See `backend/mcp_server/` and `docs/mcp-server.md` for details.
+Detailed usage documentation can be found in `docs/mcp-server.md`.
 
 ---
 
-## Project structure
+## Diagnostics & Reliability
 
-```
-PocketAgent/
-├── backend/
-│   ├── main.py              # FastAPI application
-│   ├── config.py            # Pydantic settings + env loading
-│   ├── routers/             # REST API routes (agents, chat, analytics)
-│   ├── services/            # PocketRPC, AI agent, chain router, price feed, wallets
-│   ├── tools/               # 49 on-chain tool implementations
-│   ├── mcp_server/          # Model Context Protocol adapter
-│   └── tests/               # Pytest suite (hermetic + live)
-├── frontend/
-│   └── src/
-│       ├── app/             # Next.js App Router pages
-│       ├── components/      # UI, agents, chat, dashboard, wallet
-│       └── lib/             # API client, stores, constants
-├── docs/                    # Specifications and design docs
-└── .github/workflows/       # CI (backend tests, MCP smoke, frontend build)
-```
-
----
-
-## Development
-
-### Tests
-
-```bash
-# Hermetic backend suite (run from the repository root — no extra env needed)
-python -m pytest backend/tests/ -v
-
-# Optional: live Pocket RPC checks (hits real endpoints)
-LIVE_RPC_TESTS=1 python -m pytest backend/tests/test_live_rpc.py -v
-
-# Frontend lint + build
-cd frontend && npm run lint && npm run build
-```
-
-### Health check
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
----
-
-## Reliability
-
-- Read and compare tools **degrade gracefully**: when an upstream Pocket RPC endpoint is
-  unavailable (e.g. a chain returns 5xx or times out), the tool returns a structured
-  `{"available": false, ...}` result instead of raising — so one degraded chain never
-  aborts the whole agent turn.
-- Multi-chain tools (`compare_balances`, `compare_chains`, `recommend_chain`) already
-  isolate failures per chain; a single unhealthy chain is reported as degraded rather
-  than failing the comparison.
-- Transient gateway timeouts (HTTP 408) are retried alongside 429/5xx.
-
----
-
-## Security notes
-
-- Never commit `.env` or `.env.local` — both are gitignored.
-- Generate strong values for `ENCRYPTION_KEY` and `JWT_SECRET` before running in production.
-- Native EVM, Solana, and Tron transfer tools enforce per-agent, per-chain spending caps
-  *before* broadcast.
-- Cosmos, Sui, Near native transfers and non-EVM contract writes return a deferred status
-  until protocol-specific signing is implemented.
-- Use `simulate_transaction` and review transaction prompts before approving agent-initiated sends.
+* **Graceful Failure Isolation**: Upstream RPC latency or network timeouts return standard `{"available": false}` objects instead of throwing exceptions. A single degraded node will not disrupt the remaining agent workspace loop.
+* **Intelligent Retries**: Transparent client retries for gateway rate limits (429) and network gateway timeouts (408).
+* **Guarded Writes**: Spending caps are evaluated per chain prior to broadcasting transactions, blocking excessive token outflows.
 
 ---
 
 ## License
 
-This repository does not currently include a license file. Add one (e.g. MIT or Apache-2.0)
-before open-sourcing — until then, default copyright applies and the code is not licensed
-for redistribution or commercial use.
-
----
-
-## Links
-
-- **Repository:** [github.com/Jayanng/PocketAgent](https://github.com/Jayanng/PocketAgent)
-- **Pocket Network:** [pokt.network](https://www.pokt.network/)
-- **Pocket RPC docs:** [docs.pokt.network](https://docs.pokt.network/)
+This repository does not currently contain a license file. By default, copyright applies, restricting distribution and redistribution. Please add an appropriate license (e.g., MIT or Apache 2.0) before open-sourcing.

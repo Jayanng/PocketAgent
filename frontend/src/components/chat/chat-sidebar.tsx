@@ -1,10 +1,8 @@
 "use client";
 
-import { Bot, Menu, Plus, RefreshCw, X } from "lucide-react";
+import { Bot, Menu, MessageSquare, Plus, RefreshCw, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import type { Agent, Conversation } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -41,103 +39,191 @@ export function ChatSidebar({
 
   return (
     <>
-      <div className="mb-3 flex items-center justify-between lg:hidden">
-        <Button variant="secondary" size="sm" onClick={onToggle}>
-          <Menu size={16} />
-          Conversations
-        </Button>
-        <Button variant="ghost" size="icon" onClick={onRefresh} title="Refresh workspace">
-          <RefreshCw size={16} />
-        </Button>
-      </div>
+      {/* Mobile overlay */}
+      {isOpen && (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
+          onClick={onToggle}
+        />
+      )}
+
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 w-72 border-r border-border bg-card p-4 shadow-xl transition-transform lg:static lg:z-auto lg:block lg:h-full lg:translate-x-0 lg:shadow-none",
+          "fixed inset-y-0 left-0 z-40 w-72 border-r border-border/30 bg-card/35 backdrop-blur-xl shadow-2xl transition-transform duration-350 ease-out",
+          "flex flex-col h-full",
+          "lg:static lg:z-auto lg:translate-x-0 lg:shadow-none",
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Agent</p>
-            <p className="mt-1 truncate text-sm font-semibold">{selectedAgent?.name ?? "No agent selected"}</p>
+        {/* Sidebar Header */}
+        <div className="flex items-center justify-between gap-2 border-b border-border/30 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <Bot size={15} className="text-primary shrink-0 animate-pulse-soft" />
+            <span className="text-[13px] font-semibold tracking-tight text-foreground">Agent Workspace</span>
           </div>
-          <Button variant="ghost" size="icon" className="lg:hidden" onClick={onToggle} title="Close sidebar">
-            <X size={16} />
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onRefresh}
+              title="Refresh workspace"
+              className="h-7 w-7 rounded-lg text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            >
+              <RefreshCw size={13} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden h-7 w-7 rounded-lg"
+              onClick={onToggle}
+              title="Close sidebar"
+            >
+              <X size={13} />
+            </Button>
+          </div>
+        </div>
+
+        {/* Agent Selection & Configuration */}
+        <div className="px-5 py-4 space-y-4 border-b border-border/30 bg-card/10">
+          <div>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 mb-1.5">Active Agent</p>
+            {agents.length > 0 ? (
+              <div className="relative">
+                <select
+                  value={selectedAgentId ?? ""}
+                  disabled={!agents.length || isBootstrapping}
+                  onChange={(e) => onSelectAgent(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-border/60 bg-background/50 px-3 text-xs font-semibold outline-none transition-all focus:border-primary/50 disabled:cursor-not-allowed disabled:opacity-50 text-foreground appearance-none cursor-pointer"
+                >
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground/60">
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border/50 bg-muted/10 p-3 space-y-2">
+                <p className="text-xs text-muted-foreground/80">No agents configured yet.</p>
+                <Button
+                  size="sm"
+                  onClick={onCreateAgent}
+                  disabled={isBootstrapping}
+                  className="w-full h-8 text-xs font-semibold"
+                >
+                  <Bot size={13} />
+                  Create First Agent
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Active agent chains list */}
+          {selectedAgent && (
+            <div className="rounded-lg bg-muted/10 border border-border/20 px-3.5 py-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/50">Chains</span>
+                <span className="text-[10px] font-mono text-primary font-semibold">{selectedAgent.chains.length} active</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {selectedAgent.chains.slice(0, 5).map((chain) => (
+                  <span key={chain} className="rounded border border-border/40 bg-background/30 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground uppercase">
+                    {chain.slice(0, 4)}
+                  </span>
+                ))}
+                {selectedAgent.chains.length > 5 && (
+                  <span className="rounded border border-border/40 bg-background/30 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground/55">
+                    +{selectedAgent.chains.length - 5}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* New chat button */}
+          <Button
+            onClick={onNewChat}
+            disabled={!selectedAgentId || isBootstrapping}
+            className="w-full h-9 text-xs font-bold bg-primary hover:bg-primary/95 text-white rounded-lg shadow-sm hover:scale-[1.01] active:scale-[0.99] transition-all"
+          >
+            <Plus size={14} />
+            New Conversation
           </Button>
         </div>
 
-        <div className="mt-4 space-y-3">
-          <select
-            value={selectedAgentId ?? ""}
-            disabled={!agents.length || isBootstrapping}
-            onChange={(event) => onSelectAgent(event.target.value)}
-            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
-          >
-            {!agents.length && <option value="">No agents</option>}
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-          </select>
-          <div className="grid grid-cols-[1fr_auto] gap-2">
-            <Button onClick={onNewChat} disabled={!selectedAgentId}>
-              <Plus size={16} />
-              New Chat
-            </Button>
-            <Button variant="secondary" size="icon" onClick={onRefresh} title="Refresh workspace">
-              <RefreshCw size={16} />
-            </Button>
-          </div>
-          {!agents.length && (
-            <Card className="p-3">
-              <div className="flex gap-3">
-                <Bot className="mt-0.5 shrink-0 text-muted-foreground" size={18} />
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Create an agent to start chatting.</p>
-                  <Button size="sm" onClick={onCreateAgent} disabled={isBootstrapping}>
-                    Create Agent
-                  </Button>
-                </div>
-              </div>
-            </Card>
+        {/* Conversation History List */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1.5">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/50 px-2 mb-2">
+            History · {conversations.length}
+          </p>
+
+          {conversations.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border/30 px-3 py-6 text-center">
+              <MessageSquare size={16} className="mx-auto text-muted-foreground/30 mb-2" />
+              <p className="text-xs text-muted-foreground/50">No conversations yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {conversations.map((conversation) => {
+                const isActive = conversation.id === currentConversationId;
+                return (
+                  <button
+                    key={conversation.id}
+                    type="button"
+                    onClick={() => onLoadConversation(conversation.id)}
+                    className={cn(
+                      "w-full rounded-lg px-3 py-2 text-left transition-all duration-200 border cursor-pointer",
+                      isActive
+                        ? "border-primary/20 bg-primary/5 text-foreground shadow-sm"
+                        : "border-transparent bg-transparent text-muted-foreground hover:bg-muted/20 hover:text-foreground"
+                    )}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <MessageSquare
+                        size={12}
+                        className={cn("mt-0.5 shrink-0", isActive ? "text-primary" : "text-muted-foreground/45")}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <span className={cn("block truncate text-xs font-medium leading-normal", isActive ? "text-foreground font-semibold" : "text-muted-foreground")}>
+                          {conversation.title || "Untitled conversation"}
+                        </span>
+                        {conversation.created_at && (
+                          <span className="mt-0.5 block font-mono text-[9px] text-muted-foreground/40">
+                            {new Date(conversation.created_at).toLocaleDateString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
-
-        <Separator className="my-4" />
-
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Conversations</p>
-          <div className="space-y-2">
-            {conversations.map((conversation) => (
-              <button
-                key={conversation.id}
-                type="button"
-                onClick={() => onLoadConversation(conversation.id)}
-                className={cn(
-                  "w-full rounded-md border border-border px-3 py-2 text-left text-sm transition-colors",
-                  conversation.id === currentConversationId
-                    ? "bg-muted text-foreground"
-                    : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <span className="block truncate font-medium">{conversation.title || "Untitled conversation"}</span>
-                {conversation.created_at && (
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {new Date(conversation.created_at).toLocaleString()}
-                  </span>
-                )}
-              </button>
-            ))}
-            {!conversations.length && (
-              <p className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-                No conversations yet.
-              </p>
-            )}
-          </div>
-        </div>
       </aside>
-      {isOpen && <button type="button" aria-label="Close sidebar" className="fixed inset-0 z-30 bg-black/25 lg:hidden" onClick={onToggle} />}
+
+      {/* Mobile toggle button (when closed) */}
+      <div className="mb-3 flex items-center justify-between lg:hidden px-4 py-2 border-b border-border/20 bg-card/20">
+        <Button variant="secondary" size="sm" onClick={onToggle} className="text-xs h-8">
+          <Menu size={14} />
+          Conversations
+        </Button>
+        <Button variant="ghost" size="icon" onClick={onRefresh} title="Refresh" className="h-8 w-8">
+          <RefreshCw size={14} />
+        </Button>
+      </div>
     </>
   );
 }

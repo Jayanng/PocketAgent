@@ -34,35 +34,43 @@ export function ChatInput({ disabled = false, onSend }: ChatInputProps) {
   };
 
   return (
-    <div className="flex items-end gap-2 rounded-lg border border-border bg-background p-2 shadow-sm">
-      <textarea
-        ref={textareaRef}
-        rows={1}
-        value={value}
-        disabled={disabled}
-        placeholder="Ask about any blockchain... (e.g., 'What's the gas price on Ethereum?')"
-        className="max-h-[120px] min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
-        onChange={(event) => {
-          setValue(event.target.value);
-          requestAnimationFrame(resize);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            submit();
-          }
-        }}
-      />
-      <Button
-        type="button"
-        size="icon"
-        disabled={disabled || !value.trim()}
-        onClick={submit}
-        aria-label="Send message"
-        title="Send message"
-      >
-        <SendHorizontal size={17} />
-      </Button>
+    <div className="space-y-1.5 w-full">
+      <div className="flex items-end gap-2.5 rounded-2xl border border-border/50 bg-card/40 backdrop-blur-lg p-2 shadow-lg shadow-black/15 transition-all duration-200 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10">
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          value={value}
+          disabled={disabled}
+          placeholder="Ask about any blockchain... (e.g., 'What's the gas price on Ethereum?')"
+          className="max-h-[120px] min-h-[2.5rem] flex-1 resize-none bg-transparent px-3 py-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-50 text-foreground"
+          onChange={(event) => {
+            setValue(event.target.value);
+            requestAnimationFrame(resize);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <Button
+          type="button"
+          size="icon"
+          disabled={disabled || !value.trim()}
+          onClick={submit}
+          className="h-9 w-9 shrink-0 rounded-xl bg-primary hover:bg-primary/95 text-primary-foreground transition-all hover:scale-105 active:scale-95 disabled:scale-100 disabled:pointer-events-none disabled:opacity-40 shadow-md shadow-primary/10 cursor-pointer"
+          aria-label="Send message"
+          title="Send message"
+        >
+          <SendHorizontal size={14} />
+        </Button>
+      </div>
+      <div className="flex justify-between items-center px-2">
+        <span className="font-mono text-[9px] text-muted-foreground/35 tracking-wider">
+          Enter to send · Shift+Enter for newline
+        </span>
+      </div>
     </div>
   );
 }

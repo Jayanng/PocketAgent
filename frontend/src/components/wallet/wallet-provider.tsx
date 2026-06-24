@@ -4,7 +4,7 @@ import "@rainbow-me/rainbowkit/styles.css";
 
 import { RainbowKitProvider, getDefaultConfig, lightTheme } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { WagmiProvider } from "wagmi";
 import { arbitrum, avalanche, base, bsc, mainnet as ethereum, optimism, polygon } from "wagmi/chains";
 import { http } from "viem";
@@ -14,14 +14,15 @@ import { POCKET_RPC_ENDPOINTS } from "@/lib/constants";
 
 const chains = [ethereum, polygon, arbitrum, optimism, bsc, avalanche, base] as const;
 
-const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
+const rawProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
 const placeholderProjectIds = new Set(["pocketagent-local", "your-walletconnect-project-id"]);
 
-if (!walletConnectProjectId || placeholderProjectIds.has(walletConnectProjectId)) {
-  throw new Error(
-    "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID must be set to a real WalletConnect Cloud project ID before wallet features can run."
-  );
-}
+const isMissingOrPlaceholder = !rawProjectId || placeholderProjectIds.has(rawProjectId);
+
+// Use a dummy 32-character project ID if missing/placeholder to prevent build-time crashes.
+const walletConnectProjectId = isMissingOrPlaceholder
+  ? "00000000000000000000000000000000"
+  : rawProjectId;
 
 export const walletConfig = getDefaultConfig({
   appName: "PocketAgent",
@@ -45,6 +46,14 @@ type WalletProviderProps = {
 
 export function WalletProvider({ children }: WalletProviderProps) {
   const [queryClient] = useState(() => new QueryClient());
+
+  useEffect(() => {
+    if (isMissingOrPlaceholder) {
+      console.warn(
+        "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not configured. Wallet connection features will not be active."
+      );
+    }
+  }, []);
 
   return (
     <WagmiProvider config={walletConfig}>

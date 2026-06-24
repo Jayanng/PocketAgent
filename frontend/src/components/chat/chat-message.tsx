@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { Bot, User } from "lucide-react";
 
 import { Avatar } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import type { ChainCall, ChatMessage as APIChatMessage } from "@/lib/api";
 import { CHAIN_CONFIGS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -43,13 +42,13 @@ function renderInline(text: string): ReactNode[] {
     const token = match[0];
     if (token.startsWith("`")) {
       nodes.push(
-        <code key={`${match.index}-code`} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]">
+        <code key={`${match.index}-code`} className="rounded bg-muted/60 border border-border/30 px-1.5 py-0.5 font-mono text-[0.85em] text-foreground/90">
           {token.slice(1, -1)}
         </code>
       );
     } else {
       nodes.push(
-        <strong key={`${match.index}-strong`} className="font-semibold">
+        <strong key={`${match.index}-strong`} className="font-semibold text-foreground">
           {token.slice(2, -2)}
         </strong>
       );
@@ -67,7 +66,7 @@ function MarkdownContent({ content }: { content: string }) {
   const blocks = content.split(/\n{2,}/).filter(Boolean);
 
   return (
-    <div className="space-y-3 text-sm leading-6">
+    <div className="space-y-4 text-sm leading-relaxed text-foreground/85">
       {blocks.map((block, blockIndex) => {
         const lines = block.split("\n");
         const isList = lines.every((line) => /^[-*]\s+/.test(line.trim()));
@@ -77,7 +76,7 @@ function MarkdownContent({ content }: { content: string }) {
 
         if (codeBlock) {
           return (
-            <pre key={blockIndex} className="overflow-x-auto rounded-md bg-background px-3 py-2 font-mono text-xs">
+            <pre key={blockIndex} className="my-4 overflow-x-auto rounded-xl border border-border/20 bg-muted/30 px-4 py-3.5 font-mono text-xs shadow-sm text-foreground/90 leading-normal">
               <code>{codeBlock[1]}</code>
             </pre>
           );
@@ -86,7 +85,7 @@ function MarkdownContent({ content }: { content: string }) {
         if (heading) {
           const HeadingTag = (`h${Math.min(heading[1].length + 2, 5)}`) as "h3" | "h4" | "h5";
           return (
-            <HeadingTag key={blockIndex} className="font-semibold">
+            <HeadingTag key={blockIndex} className="font-bold tracking-tight text-foreground/95 my-5">
               {renderInline(heading[2])}
             </HeadingTag>
           );
@@ -94,7 +93,7 @@ function MarkdownContent({ content }: { content: string }) {
 
         if (isList) {
           return (
-            <ul key={blockIndex} className="list-disc space-y-1 pl-5">
+            <ul key={blockIndex} className="my-3 list-disc space-y-2 pl-5 text-foreground/85">
               {lines.map((line, lineIndex) => (
                 <li key={lineIndex}>{renderInline(line.replace(/^[-*]\s+/, ""))}</li>
               ))}
@@ -104,7 +103,7 @@ function MarkdownContent({ content }: { content: string }) {
 
         if (isOrderedList) {
           return (
-            <ol key={blockIndex} className="list-decimal space-y-1 pl-5">
+            <ol key={blockIndex} className="my-3 list-decimal space-y-2 pl-5 text-foreground/85">
               {lines.map((line, lineIndex) => (
                 <li key={lineIndex}>{renderInline(line.replace(/^\d+\.\s+/, ""))}</li>
               ))}
@@ -113,7 +112,7 @@ function MarkdownContent({ content }: { content: string }) {
         }
 
         return (
-          <p key={blockIndex} className="whitespace-pre-wrap break-words">
+          <p key={blockIndex} className="whitespace-pre-wrap break-words leading-relaxed text-foreground/85">
             {renderInline(block)}
           </p>
         );
@@ -127,38 +126,61 @@ export function ChatMessage({ message, loading = false }: ChatMessageProps) {
   const chains = message ? chainNamesFromCalls(message.chain_calls) : [];
 
   return (
-    <article className={cn("flex gap-3", isUser && "flex-row-reverse")}>
-      <Avatar className={cn(isUser ? "bg-primary text-primary-foreground" : "bg-muted")}>
-        {isUser ? <User size={15} /> : <Bot size={15} />}
+    <article className={cn("flex gap-4 chat-message-enter py-1", isUser && "flex-row-reverse")}>
+      <Avatar
+        className={cn(
+          "rounded-xl border shadow-md h-8 w-8 flex items-center justify-center transition-all duration-300",
+          isUser
+            ? "bg-gradient-to-br from-primary/80 to-primary text-white border-transparent"
+            : "bg-muted/60 text-primary border-border/30"
+        )}
+      >
+        {isUser ? <User size={14} /> : <Bot size={14} className="animate-pulse-soft" />}
       </Avatar>
-      <div className={cn("max-w-[min(42rem,85%)] space-y-2", isUser && "items-end")}>
+
+      <div className={cn("max-w-[min(46rem,85%)] flex flex-col space-y-1.5", isUser && "items-end")}>
         <div
           className={cn(
-            "rounded-lg border px-4 py-3",
+            "px-4 py-3 transition-all duration-300",
             isUser
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-border bg-muted text-foreground"
+              ? "rounded-2xl rounded-tr-sm border border-primary/20 bg-primary/5 text-foreground shadow-sm shadow-primary/5"
+              : "border-transparent bg-transparent text-foreground shadow-none px-0 py-1"
           )}
         >
           {loading ? (
-            <div className="flex h-6 items-center gap-1.5" aria-label="Waiting for assistant response">
-              <span className="h-2 w-2 rounded-full bg-muted-foreground motion-safe:animate-bounce" />
-              <span className="h-2 w-2 rounded-full bg-muted-foreground motion-safe:animate-bounce [animation-delay:120ms]" />
-              <span className="h-2 w-2 rounded-full bg-muted-foreground motion-safe:animate-bounce [animation-delay:240ms]" />
+            <div className="flex h-5 items-center gap-1.5 pl-1" aria-label="Waiting for assistant response">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse-soft" />
+              <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse-soft [animation-delay:200ms]" />
+              <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse-soft [animation-delay:400ms]" />
             </div>
           ) : message?.role === "assistant" ? (
             <MarkdownContent content={message.content} />
           ) : (
-            <p className="whitespace-pre-wrap break-words text-sm leading-6">{message?.content}</p>
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/95">
+              {message?.content}
+            </p>
           )}
         </div>
+
         {!isUser && !loading && message && (
-          <div className="flex flex-wrap items-center gap-2 pl-1 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 pl-0.5 text-[10px] text-muted-foreground/60 transition-opacity">
             {chains.map((chain) => {
               const config = CHAIN_CONFIGS[chain as keyof typeof CHAIN_CONFIGS];
-              return <Badge key={chain}>{config?.name ?? chain}</Badge>;
+              return (
+                <span
+                  key={chain}
+                  className="inline-flex items-center rounded border border-border/40 bg-muted/20 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/80 shadow-sm"
+                  title={config?.name ?? chain}
+                >
+                  {config?.symbol ?? chain.slice(0, 4).toUpperCase()}
+                </span>
+              );
             })}
-            {message.tokens_used ? <span>{message.tokens_used.toLocaleString()} tokens</span> : null}
+            {message.tokens_used ? (
+              <span className="font-mono text-[9px] text-muted-foreground/50">
+                {message.tokens_used.toLocaleString()} tokens
+              </span>
+            ) : null}
           </div>
         )}
       </div>

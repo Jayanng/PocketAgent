@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     pocket_api_base: str = "api.pocket.network"
     notional_pokt_per_relay: float = 0.00089
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    disable_agent_auth: bool = False
+
 
     @property
     def cors_origin_list(self) -> list[str]:

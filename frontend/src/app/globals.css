@@ -37,7 +37,30 @@ h6 {
 html,
 body {
   overflow-x: clip;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
 }
+
+/* Custom Scrollbar Styles for WebKit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: oklch(25% 0.015 255);
+  border-radius: 9999px;
+  border: 2px solid var(--background);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(35% 0.02 255);
+}
+
 
 /* ── Keyframe Animations ────────────────────────────────────────────── */
 

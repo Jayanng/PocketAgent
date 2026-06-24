@@ -1,14 +1,9 @@
-import os
 import unittest
 
 from backend.services.chain_router import ChainRouter
 from backend.services.pocket_rpc import PocketRPCClient
 
 
-LIVE_RPC_ENABLED = os.getenv("LIVE_RPC_TESTS") == "1"
-
-
-@unittest.skipUnless(LIVE_RPC_ENABLED, "Set LIVE_RPC_TESTS=1 to hit live Pocket RPC endpoints.")
 class LiveRPCTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_live_pocket_rpc_chain_comparison_subset(self) -> None:
         router = ChainRouter(PocketRPCClient(), default_chains=["ethereum", "polygon", "solana"], concurrency=3)

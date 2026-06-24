@@ -3,17 +3,20 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useAccount } from "wagmi";
 import {
   Bot,
   Gauge,
   Menu,
   MessageSquare,
   Sparkles,
+  WalletCards,
   X,
 } from "lucide-react";
 import { BalanceDisplay } from "@/components/wallet/balance-display";
 import { ConnectButton } from "@/components/wallet/connect-button";
 import { RpcBanner } from "@/components/ui/rpc-banner";
+import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
 import { CHAIN_CONFIGS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { API_BASE_URL } from "@/lib/api";
@@ -31,13 +34,13 @@ type AppShellProps = {
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { isConnected } = useAccount();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [balancesOpen, setBalancesOpen] = useState(false);
   const [rpcDown, setRpcDown] = useState(false);
   const [shortcutsVisible, setShortcutsVisible] = useState(false);
   const chainCount = Object.keys(CHAIN_CONFIGS).length;
 
-  // Close sidebar on route change (mobile) — track previous pathname to avoid
-  // calling setState on every render, which triggers react-hooks lint warnings.
   const prevPathname = useRef(pathname);
   useEffect(() => {
     if (prevPathname.current !== pathname) {
@@ -69,17 +72,18 @@ export function AppShell({ children }: AppShellProps) {
         return;
       }
 
-      // Escape: Close sidebar or shortcuts
+      // Escape: Close sidebar or shortcuts or modal
       if (e.key === "Escape") {
         if (sidebarOpen) setSidebarOpen(false);
         if (shortcutsVisible) setShortcutsVisible(false);
+        if (balancesOpen) setBalancesOpen(false);
         return;
       }
     };
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [router, sidebarOpen, shortcutsVisible]);
+  }, [router, sidebarOpen, shortcutsVisible, balancesOpen]);
 
   // Check API availability on mount + periodic heartbeat every 30s
   useEffect(() => {
@@ -99,7 +103,7 @@ export function AppShell({ children }: AppShellProps) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       {rpcDown && (
         <RpcBanner
           visible={rpcDown}
@@ -113,135 +117,200 @@ export function AppShell({ children }: AppShellProps) {
         />
       )}
 
-      {/* Mobile header with hamburger */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-card px-4 py-3 md:hidden">
-        <Link href="/" className="flex items-center gap-2">
-          <Sparkles size={18} className="text-primary" />
-          <span className="text-sm font-semibold tracking-tight">
-            PocketAgent
-          </span>
-        </Link>
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-          aria-label={sidebarOpen ? "Close menu" : "Open menu"}
-        >
-          {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
+      {/* Global Top Header */}
+      <header className="sticky top-0 z-30 w-full border-b border-border/40 bg-card/60 backdrop-blur-xl transition-all">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 md:px-8">
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent shadow-lg shadow-primary/20 group-hover:scale-105 transition-transform duration-200">
+              <Sparkles size={16} className="text-white" />
+            </div>
+            <span className="text-[15px] font-semibold tracking-tight text-foreground group-hover:text-foreground/90 transition-colors">
+              PocketAgent
+            </span>
+          </Link>
+
+          {/* Desktop Navigation */}
+          <nav className="hidden items-center gap-1.5 md:flex">
+            {navItems.map((item) => {
+              const isActive = pathname.startsWith(item.href);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg px-3.5 py-2 text-[13px] font-medium transition-all duration-200",
+                    isActive
+                      ? "bg-primary/10 text-primary border border-primary/20 shadow-sm shadow-primary/5"
+                      : "text-muted-foreground border border-transparent hover:bg-muted/40 hover:text-foreground"
+                  )}
+                >
+                  <Icon size={14} />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* Desktop Right Side (Wallet details & connect) */}
+          <div className="hidden items-center gap-3 md:flex">
+            {isConnected && (
+              <button
+                type="button"
+                onClick={() => setBalancesOpen(true)}
+                className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-3.5 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted/40 hover:text-foreground hover:border-border transition-all duration-200 shadow-sm cursor-pointer"
+                title="View multi-chain wallet balances"
+              >
+                <WalletCards size={14} className="text-primary/70" />
+                <span>Balances</span>
+              </button>
+            )}
+            <ConnectButton />
+          </div>
+
+          {/* Mobile hamburger menu */}
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="flex md:hidden rounded-lg border border-border/60 bg-muted/10 p-2 text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-all"
+            aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+          >
+            {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
+        </div>
       </header>
 
-      {/* Mobile overlay */}
+      {/* Mobile Drawer Navigation */}
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-20 bg-black/30 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close mobile navigation"
+          />
+          <aside className="fixed inset-y-0 right-0 z-50 w-72 border-l border-border/50 bg-card/95 backdrop-blur-xl p-6 shadow-2xl flex flex-col justify-between md:hidden animate-toast-in">
+            <div className="space-y-6">
+              <div className="flex items-center justify-between pb-4 border-b border-border/40">
+                <Link href="/" className="flex items-center gap-2" onClick={() => setSidebarOpen(false)}>
+                  <Sparkles size={18} className="text-primary" />
+                  <span className="text-sm font-semibold tracking-tight text-foreground">
+                    PocketAgent
+                  </span>
+                </Link>
+                <button
+                  onClick={() => setSidebarOpen(false)}
+                  className="rounded-lg border border-border/60 p-1.5 text-muted-foreground hover:text-foreground"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+
+              <nav className="flex flex-col gap-1.5">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = pathname.startsWith(item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setSidebarOpen(false)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-4 py-3 text-[14px] font-medium transition-all",
+                        isActive
+                          ? "bg-primary/10 text-primary border border-primary/20 shadow-sm"
+                          : "text-muted-foreground border border-transparent hover:bg-muted/40 hover:text-foreground"
+                      )}
+                    >
+                      <Icon size={16} />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+
+              {isConnected && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSidebarOpen(false);
+                    setBalancesOpen(true);
+                  }}
+                  className="w-full flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-[14px] font-semibold text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-all cursor-pointer"
+                >
+                  <WalletCards size={16} className="text-primary/70" />
+                  <span>Wallet & Agent Balances</span>
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-4 pt-4 border-t border-border/40">
+              <div className="rounded-lg bg-muted/20 border border-border/30 p-3">
+                <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">Network Status</p>
+                <p className="mt-1 text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                  </span>
+                  <span>{chainCount} chains active</span>
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">Pocket Network RPC gateway</p>
+              </div>
+
+              <div onClick={() => setSidebarOpen(false)}>
+                <ConnectButton layout="vertical" />
+              </div>
+            </div>
+          </aside>
+        </>
       )}
 
-      <div className="mx-auto flex w-full max-w-7xl flex-col md:flex-row">
-        {/* Sidebar */}
-        <aside
-          className={cn(
-            "border-border bg-card transition-all duration-300 md:sticky md:top-0 md:h-screen md:border-r",
-            "fixed inset-y-0 left-0 z-30 w-72 -translate-x-full md:static md:translate-x-0",
-            sidebarOpen && "translate-x-0",
-          )}
-        >
-          <div className="flex h-full flex-col overflow-y-auto px-5 pb-6 pt-6">
-            <div className="mb-6 flex items-center justify-between">
-              <Link href="/" className="flex items-center gap-2">
-                <Sparkles size={20} className="text-primary" />
-                <span className="text-base font-semibold tracking-tight">
-                  PocketAgent
-                </span>
-              </Link>
-            </div>
+      {/* Main Page Layout Container */}
+      <main
+        className={cn(
+          "w-full flex-1 min-h-0",
+          pathname.startsWith("/chat")
+            ? "h-[calc(100vh-4rem)] p-0"
+            : "mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8"
+        )}
+      >
+        {children}
+      </main>
 
-            <div className="mb-4">
-              <ConnectButton />
-            </div>
-
-            <nav className="flex flex-col gap-1">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = pathname.startsWith(item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-2.5 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                    )}
-                  >
-                    <Icon size={17} />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
-
-            <div className="mt-4 rounded-lg border border-border bg-background p-3.5">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Network
-              </p>
-              <p className="mt-2 text-sm font-medium">{chainCount} chains</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Pocket Network RPC
-              </p>
-            </div>
-
-            <BalanceDisplay className="mt-4" compact />
+      {/* Balances Details Modal/Dialog */}
+      <Dialog open={balancesOpen} onOpenChange={setBalancesOpen}>
+        <DialogContent className="max-w-md bg-card/90 backdrop-blur-xl border border-border/50 shadow-2xl rounded-2xl">
+          <DialogHeader
+            title="RPC Balances"
+            description="Live native balances queried through decentralized Pocket Network gateway."
+            onClose={() => setBalancesOpen(false)}
+          />
+          <div className="p-4 max-h-[70vh] overflow-y-auto">
+            <BalanceDisplay className="border-0 bg-transparent p-0" />
           </div>
-        </aside>
+        </DialogContent>
+      </Dialog>
 
-        <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
-          {children}
-        </main>
-      </div>
-
-      {/* Shortcuts palette */}
+      {/* Keyboard Shortcuts Palette */}
       {shortcutsVisible && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
-          onClick={() => setShortcutsVisible(false)}
-        >
-          <div
-            className="w-80 rounded-xl border border-border bg-card p-6 shadow-xl animate-slide-up"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Keyboard Shortcuts</h2>
-              <button
-                onClick={() => setShortcutsVisible(false)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="space-y-3">
+        <Dialog open={shortcutsVisible} onOpenChange={setShortcutsVisible}>
+          <DialogContent className="max-w-xs bg-card/90 backdrop-blur-xl border border-border/50 shadow-2xl rounded-xl">
+            <DialogHeader title="Keyboard Shortcuts" onClose={() => setShortcutsVisible(false)} />
+            <div className="p-4 space-y-3.5">
               {[
                 { keys: "Ctrl+K", desc: "New Chat" },
                 { keys: "Ctrl+/", desc: "Show Shortcuts" },
                 { keys: "Escape", desc: "Close Modals / Sidebar" },
               ].map((shortcut) => (
-                <div
-                  key={shortcut.keys}
-                  className="flex items-center justify-between"
-                >
-                  <span className="text-sm text-muted-foreground">
-                    {shortcut.desc}
-                  </span>
-                  <kbd className="rounded-md border border-border bg-muted px-2 py-0.5 text-xs font-medium">
+                <div key={shortcut.keys} className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{shortcut.desc}</span>
+                  <kbd className="rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono font-medium text-[10px]">
                     {shortcut.keys}
                   </kbd>
                 </div>
               ))}
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

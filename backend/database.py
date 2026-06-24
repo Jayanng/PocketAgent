@@ -6,13 +6,14 @@ from datetime import datetime, timezone
 import aiosqlite
 
 try:
-    from .config import get_settings
+    from .config import ensure_database_directory, get_settings
 except ImportError:
-    from config import get_settings
+    from config import ensure_database_directory, get_settings
 
 
 async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
     settings = get_settings()
+    ensure_database_directory(settings.database_path)
     db = await aiosqlite.connect(settings.database_path)
     await db.execute("PRAGMA foreign_keys = ON;")
     db.row_factory = aiosqlite.Row
@@ -24,6 +25,7 @@ async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
 
 async def init_db() -> None:
     settings = get_settings()
+    ensure_database_directory(settings.database_path)
     async with aiosqlite.connect(settings.database_path) as db:
         await db.execute("PRAGMA foreign_keys = ON;")
 
@@ -37,13 +39,21 @@ async def init_db() -> None:
                 capabilities TEXT,
                 encrypted_private_key TEXT NOT NULL,
                 wallet_address TEXT,
+                encrypted_wallets TEXT,
+                wallet_addresses TEXT,
+                access_token_hash TEXT,
                 spending_cap REAL DEFAULT 0.1,
                 total_spent REAL DEFAULT 0.0,
+                total_spent_by_chain TEXT,
                 is_active INTEGER DEFAULT 1,
                 created_at TEXT,
                 updated_at TEXT
             )
         """)
+        await _ensure_column(db, "agents", "encrypted_wallets", "TEXT")
+        await _ensure_column(db, "agents", "wallet_addresses", "TEXT")
+        await _ensure_column(db, "agents", "access_token_hash", "TEXT")
+        await _ensure_column(db, "agents", "total_spent_by_chain", "TEXT")
 
         # 2. conversations table
         await db.execute("""
@@ -129,6 +139,18 @@ async def _migrate_messages_role_constraint(db: aiosqlite.Connection) -> None:
     await db.execute("PRAGMA foreign_keys = ON;")
 
 
+async def _ensure_column(
+    db: aiosqlite.Connection,
+    table: str,
+    column: str,
+    column_type: str,
+) -> None:
+    async with db.execute(f"PRAGMA table_info({table})") as cursor:
+        columns = {row[1] for row in await cursor.fetchall()}
+    if column not in columns:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
+
 # ─── CRUD: Agents ───────────────────────────────────────────────────────────
 
 async def create_agent(
@@ -139,6 +161,9 @@ async def create_agent(
     chains: list[str] | None = None,
     capabilities: list[str] | None = None,
     wallet_address: str | None = None,
+    encrypted_wallets: dict[str, str] | None = None,
+    wallet_addresses: dict[str, str] | None = None,
+    access_token_hash: str | None = None,
     spending_cap: float = 0.1,
 ) -> dict:
     now = datetime.now(timezone.utc).isoformat()
@@ -147,9 +172,10 @@ async def create_agent(
         """
         INSERT INTO agents (id, name, description, chains, capabilities,
                             encrypted_private_key, wallet_address,
-                            spending_cap, total_spent, is_active,
+                            encrypted_wallets, wallet_addresses, access_token_hash,
+                            spending_cap, total_spent, total_spent_by_chain, is_active,
                             created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
         """,
         (
             agent_id,
@@ -159,8 +185,12 @@ async def create_agent(
             json.dumps(capabilities or ["read", "transact", "compare"]),
             encrypted_private_key,
             wallet_address,
+            json.dumps(encrypted_wallets or {}),
+            json.dumps(wallet_addresses or {}),
+            access_token_hash,
             spending_cap,
             0.0,
+            json.dumps({}),
             now,
             now,
         ),
@@ -178,7 +208,9 @@ async def get_agent(db: aiosqlite.Connection, agent_id: str) -> dict | None:
 
 
 async def list_agents(db: aiosqlite.Connection) -> list[dict]:
-    async with db.execute("SELECT * FROM agents ORDER BY created_at DESC") as cursor:
+    async with db.execute(
+        "SELECT * FROM agents WHERE is_active = 1 ORDER BY created_at DESC"
+    ) as cursor:
         rows = await cursor.fetchall()
     return [_row_to_agent(r) for r in rows]
 
@@ -189,7 +221,9 @@ async def update_agent(db: aiosqlite.Connection, agent_id: str, **fields) -> dic
         return None
     allowed = {
         "name", "description", "chains", "capabilities",
-        "wallet_address", "spending_cap", "total_spent", "is_active",
+        "wallet_address", "encrypted_wallets", "wallet_addresses",
+        "access_token_hash", "spending_cap", "total_spent",
+        "total_spent_by_chain", "is_active",
     }
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
@@ -198,6 +232,12 @@ async def update_agent(db: aiosqlite.Connection, agent_id: str, **fields) -> dic
         updates["chains"] = json.dumps(updates["chains"])
     if "capabilities" in updates:
         updates["capabilities"] = json.dumps(updates["capabilities"])
+    if "encrypted_wallets" in updates:
+        updates["encrypted_wallets"] = json.dumps(updates["encrypted_wallets"])
+    if "wallet_addresses" in updates:
+        updates["wallet_addresses"] = json.dumps(updates["wallet_addresses"])
+    if "total_spent_by_chain" in updates:
+        updates["total_spent_by_chain"] = json.dumps(updates["total_spent_by_chain"])
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [agent_id]
@@ -447,12 +487,16 @@ async def delete_relay_log(db: aiosqlite.Connection, log_id: str) -> bool:
 
 def _row_to_agent(row) -> dict:
     d = dict(row)
-    for json_field in ("chains", "capabilities"):
+    dict_fields = {"encrypted_wallets", "wallet_addresses", "total_spent_by_chain"}
+    for json_field in ("chains", "capabilities", "encrypted_wallets", "wallet_addresses", "total_spent_by_chain"):
         if isinstance(d.get(json_field), str):
             try:
-                d[json_field] = json.loads(d[json_field])
+                parsed = json.loads(d[json_field])
+                d[json_field] = parsed if parsed is not None else ({} if json_field in dict_fields else [])
             except (json.JSONDecodeError, TypeError):
-                d[json_field] = []
+                d[json_field] = {} if json_field in dict_fields else []
+    if d.get("total_spent_by_chain") is None:
+        d["total_spent_by_chain"] = {}
     if isinstance(d.get("is_active"), int):
         d["is_active"] = bool(d["is_active"])
     return d

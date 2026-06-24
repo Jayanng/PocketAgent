@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Circle, GitCompareArrows, Search, SendHorizontal } from "lucide-react";
+import { BarChart3, GitCompareArrows, Search, SendHorizontal } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -45,15 +45,7 @@ export function AgentCard({ agent, selected = false, onSelect }: AgentCardProps)
             {agent.description || "No description provided."}
           </p>
         </div>
-        <span
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium",
-            agent.is_active ? "border-green-200 bg-green-50 text-green-700" : "border-border bg-muted text-muted-foreground"
-          )}
-        >
-          <Circle size={8} fill="currentColor" />
-          {agent.is_active ? "Active" : "Inactive"}
-        </span>
+        <Badge>{agent.chains.length} chains</Badge>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">

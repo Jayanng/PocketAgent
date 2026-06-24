@@ -1,132 +1,281 @@
-import base64
 import unittest
 from unittest.mock import AsyncMock, patch
+
+from eth_account import Account
+from solders.keypair import Keypair
 
 from backend.tools.registry import ToolContext
 from backend.tools.transaction_tools import contract_call, send_erc20, send_transaction
 
-# Deterministic test keys.
-SOLANA_SEED_HEX = "4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
-TRON_PRIV_HEX = "4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
-# Corresponding Solana pubkey derived in the probe:
-SOLANA_PUBKEY = "HaWmh8svNQ2CSLc1TQdkhwP6ZthzwkNT5ai5yoVMvyWJ"
+
+EVM_PRIVATE_KEY = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
+SOLANA_PRIVATE_KEY = Keypair.from_seed(bytes.fromhex(EVM_PRIVATE_KEY.removeprefix("0x"))).to_bytes().hex()
+TRON_PRIVATE_KEY = EVM_PRIVATE_KEY.removeprefix("0x")
 
 
 class _WriteFakeRPC:
-    """Fake RPC client that records Solana sendTransaction and Tron
-    wallet/broadcasthex calls, plus supports the read calls needed to build
-    transactions (blockhash, account)."""
-
     def __init__(self) -> None:
-        self.broadcasts: list[tuple[str, str, list]] = []
+        self.calls: list[tuple[str, str, list]] = []
+        self.sent_raw: list[tuple[str, str]] = []
         self.settings = type("S", (), {"notional_pokt_per_relay": 0.00089})()
 
     def get_protocol(self, chain: str) -> str:
-        return {"solana": "solana", "tron": "tron", "ethereum": "evm"}[chain]
-
-    def get_metadata(self, chain: str) -> dict:
-        return {
-            "solana": {"protocol": "solana", "symbol": "SOL", "decimals": 9, "chain_id": "mainnet-beta"},
-            "tron": {"protocol": "tron", "symbol": "TRX", "decimals": 6, "chain_id": "mainnet"},
-            "ethereum": {"protocol": "evm", "symbol": "ETH", "decimals": 18, "chain_id": 1},
-        }[chain]
+        return {"ethereum": "evm", "solana": "solana", "tron": "tron", "near": "near"}[chain]
 
     async def call(self, chain: str, method: str, params: list | None = None) -> object:
         params = params or []
+        self.calls.append((chain, method, params))
+        if chain == "ethereum" and method == "eth_gasPrice":
+            return hex(1_000_000_000)
+        if chain == "ethereum" and method == "eth_estimateGas":
+            return hex(21_000)
+        if chain == "ethereum" and method == "eth_call":
+            return "0x"
         if chain == "solana" and method == "getLatestBlockhash":
-            return {"value": {"blockhash": "EETubP5AKHgjPAhzPAFcb8BAY1hMH6tbJyDPwWXfPbe9", "lastValidBlockHeight": 300000000}}
+            return {"value": {"blockhash": "EETubP5AKHgjPAhzPAFcb8BAY1hMH6tbJyDPwWXfPbe9"}}
+        if chain == "solana" and method == "sendTransaction":
+            return "solana-signature-456"
+        if chain == "tron" and method == "wallet/createtransaction":
+            return {
+                "txID": "00" * 32,
+                "raw_data": {"contract": []},
+                "raw_data_hex": "0a02",
+            }
         if chain == "tron" and method == "wallet/broadcasttransaction":
-            self.broadcasts.append((chain, method, params))
             return {"result": True, "txid": "tron-tx-hash-123"}
-        raise AssertionError(f"unexpected read call: {chain}.{method} {params}")
+        raise AssertionError(f"unexpected RPC call: {chain}.{method} {params}")
 
     async def send_raw_transaction(self, chain: str, raw_tx: str) -> str:
-        # Solana path: raw_tx is base64 of the serialized versioned transaction.
-        self.broadcasts.append((chain, "send_raw_transaction", [raw_tx]))
-        return "solana-signature-456"
+        self.sent_raw.append((chain, raw_tx))
+        return "0xtransactionhash"
 
-    async def get_chain_id(self, chain: str) -> int | str:
-        return self.get_metadata(chain)["chain_id"]
+    async def get_chain_id(self, chain: str) -> int:
+        return 1
 
     async def get_transaction_count(self, chain: str, address: str) -> int:
         return 0
 
 
-def _solana_context() -> tuple[ToolContext, _WriteFakeRPC]:
+def _context(chains: list[str]) -> tuple[ToolContext, _WriteFakeRPC]:
     rpc = _WriteFakeRPC()
+    account = Account.from_key(EVM_PRIVATE_KEY)
     agent = {
-        "id": "agent-sol",
-        "chains": ["solana"],
-        "encrypted_private_key": "encrypted-blob-solana",
-        "spending_cap": 1.0,
+        "id": "agent-write",
+        "chains": chains,
+        "encrypted_private_key": "encrypted-blob",
+        "encrypted_wallets": {
+            "evm": "encrypted-blob",
+            "solana": "encrypted-solana",
+            "tron": "encrypted-tron",
+        },
+        "wallet_address": account.address,
+        "wallet_addresses": {
+            "evm": account.address,
+            "solana": str(Keypair.from_bytes(bytes.fromhex(SOLANA_PRIVATE_KEY)).pubkey()),
+        },
+        "spending_cap": 10.0,
         "total_spent": 0.0,
+        "total_spent_by_chain": {},
     }
-    ctx = ToolContext(agent=agent, rpc_client=rpc, relay_tracker=None, db=None)
-    return ctx, rpc
-
-
-def _tron_context() -> tuple[ToolContext, _WriteFakeRPC]:
-    rpc = _WriteFakeRPC()
-    agent = {
-        "id": "agent-tron",
-        "chains": ["tron"],
-        "encrypted_private_key": "encrypted-blob-tron",
-        "spending_cap": 1000.0,
-        "total_spent": 0.0,
-    }
-    ctx = ToolContext(agent=agent, rpc_client=rpc, relay_tracker=None, db=None)
-    return ctx, rpc
+    return ToolContext(agent=agent, rpc_client=rpc, relay_tracker=None, db=None), rpc
 
 
 def _decrypt_side_effect(encrypted: str) -> str:
-    if encrypted == "encrypted-blob-solana":
-        return SOLANA_SEED_HEX
-    if encrypted == "encrypted-blob-tron":
-        return TRON_PRIV_HEX
-    raise ValueError(f"unexpected encrypted blob: {encrypted}")
+    return {
+        "encrypted-blob": EVM_PRIVATE_KEY,
+        "encrypted-solana": SOLANA_PRIVATE_KEY,
+        "encrypted-tron": TRON_PRIVATE_KEY,
+    }[encrypted]
 
 
-class SolanaWriteTransactionTestCase(unittest.IsolatedAsyncioTestCase):
-    @patch("backend.tools.transaction_tools.decrypt_private_key")
+class EVMWriteTransactionTestCase(unittest.IsolatedAsyncioTestCase):
+    @patch("backend.tools.transaction_tools.decrypt_private_key", return_value=EVM_PRIVATE_KEY)
     @patch("backend.tools.transaction_tools.update_agent", new=AsyncMock())
-    async def test_send_transaction_signs_and_broadcasts_solana(self, mock_decrypt) -> None:
-        mock_decrypt.side_effect = _decrypt_side_effect
-        ctx, rpc = _solana_context()
+    async def test_send_transaction_signs_and_broadcasts_evm(self, mock_decrypt) -> None:
+        ctx, rpc = _context(["ethereum"])
 
-        result = await send_transaction(ctx, {"chain": "solana", "to_address": "11111111111111111111111111111112", "amount": "0.000001"})
+        result = await send_transaction(
+            ctx,
+            {
+                "chain": "ethereum",
+                "to_address": "0x000000000000000000000000000000000000dEaD",
+                "amount": "0.01",
+            },
+        )
 
-        self.assertNotEqual(result.get("status"), "deferred", "Solana writes must not return a deferred status")
-        self.assertEqual(result["protocol"], "solana")
-        self.assertEqual(result["tx_hash"], "solana-signature-456")
-        # A broadcast must have been recorded.
-        self.assertTrue(any(c[0] == "solana" for c in rpc.broadcasts))
-        # The serialized tx must be valid base64 decodable bytes (a real signed tx).
-        raw = next(c[2][0] for c in rpc.broadcasts if c[0] == "solana")
-        decoded = base64.b64decode(raw)
-        self.assertGreater(len(decoded), 50, "expected a real serialized Solana transaction")
+        self.assertEqual(result["protocol"], "evm")
+        self.assertEqual(result["tx_hash"], "0xtransactionhash")
+        self.assertEqual(len(rpc.sent_raw), 1)
+        self.assertEqual(rpc.sent_raw[0][0], "ethereum")
+        int(rpc.sent_raw[0][1].removeprefix("0x"), 16)
+        self.assertEqual(result["cap_spend_native"], "0.010021")
+        self.assertEqual(ctx.agent["total_spent_by_chain"]["ethereum"], 0.010021)
 
+    @patch("backend.tools.transaction_tools.decrypt_private_key", return_value=EVM_PRIVATE_KEY)
+    async def test_spending_cap_is_tracked_per_chain(self, mock_decrypt) -> None:
+        ctx, rpc = _context(["ethereum", "solana"])
+        ctx.agent["spending_cap"] = 1
+        ctx.agent["total_spent"] = 0.9
+        ctx.agent["total_spent_by_chain"] = {"solana": 0.9}
 
-class TronWriteTransactionTestCase(unittest.IsolatedAsyncioTestCase):
-    @patch("backend.tools.transaction_tools.decrypt_private_key")
-    @patch("backend.tools.transaction_tools.update_agent", new=AsyncMock())
-    async def test_send_transaction_signs_and_broadcasts_tron(self, mock_decrypt) -> None:
-        mock_decrypt.side_effect = _decrypt_side_effect
-        ctx, rpc = _tron_context()
+        result = await send_transaction(
+            ctx,
+            {
+                "chain": "ethereum",
+                "to_address": "0x000000000000000000000000000000000000dEaD",
+                "amount": "0.2",
+            },
+        )
 
-        result = await send_transaction(ctx, {"chain": "tron", "to_address": "TPBkHycN1Hmr2bFcfjvp2fjkca1hfPbPka", "amount": "1"})
+        self.assertEqual(result["tx_hash"], "0xtransactionhash")
+        self.assertEqual(ctx.agent["total_spent_by_chain"]["solana"], 0.9)
+        self.assertEqual(ctx.agent["total_spent_by_chain"]["ethereum"], 0.200021)
 
-        self.assertNotEqual(result.get("status"), "deferred", "Tron writes must not return a deferred status")
-        self.assertEqual(result["protocol"], "tron")
-        self.assertEqual(result["tx_hash"], "tron-tx-hash-123")
-        self.assertTrue(any(c[0] == "tron" for c in rpc.broadcasts))
+    @patch("backend.tools.transaction_tools.decrypt_private_key", return_value=EVM_PRIVATE_KEY)
+    async def test_spending_cap_blocks_current_chain_only(self, mock_decrypt) -> None:
+        ctx, rpc = _context(["ethereum"])
+        ctx.agent["spending_cap"] = 1
+        ctx.agent["total_spent_by_chain"] = {"ethereum": 0.995}
 
-    @patch("backend.tools.transaction_tools.decrypt_private_key")
-    @patch("backend.tools.transaction_tools.update_agent", new=AsyncMock())
-    async def test_contract_call_tron_signs_and_broadcasts(self, mock_decrypt) -> None:
-        mock_decrypt.side_effect = _decrypt_side_effect
-        ctx, rpc = _tron_context()
+        with self.assertRaises(PermissionError):
+            await send_transaction(
+                ctx,
+                {
+                    "chain": "ethereum",
+                    "to_address": "0x000000000000000000000000000000000000dEaD",
+                    "amount": "0.01",
+                },
+            )
+
+        self.assertEqual(rpc.sent_raw, [])
+
+    @patch("backend.tools.transaction_tools.decrypt_private_key", return_value=EVM_PRIVATE_KEY)
+    async def test_erc20_write_requires_spending_cap_for_gas(self, mock_decrypt) -> None:
+        ctx, rpc = _context(["ethereum"])
+        ctx.agent["spending_cap"] = 0
+
+        with self.assertRaises(PermissionError):
+            await send_erc20(
+                ctx,
+                {
+                    "chain": "ethereum",
+                    "token_address": "0x0000000000000000000000000000000000000001",
+                    "to_address": "0x000000000000000000000000000000000000dEaD",
+                    "amount": "1",
+                },
+            )
+
+        self.assertEqual(rpc.sent_raw, [])
+
+    @patch("backend.tools.transaction_tools.decrypt_private_key", return_value=EVM_PRIVATE_KEY)
+    async def test_zero_value_contract_write_requires_spending_cap_for_gas(self, mock_decrypt) -> None:
+        ctx, rpc = _context(["ethereum"])
+        ctx.agent["spending_cap"] = 0
+
+        with self.assertRaises(PermissionError):
+            await contract_call(
+                ctx,
+                {
+                    "chain": "ethereum",
+                    "contract_address": "0x000000000000000000000000000000000000dEaD",
+                    "abi_function": "approve(address,uint256)",
+                    "args": ["0x000000000000000000000000000000000000dEaD", "1"],
+                    "write": True,
+                },
+            )
+
+        self.assertEqual(rpc.sent_raw, [])
+
+    async def test_evm_read_contract_call_does_not_require_signing(self) -> None:
+        ctx, rpc = _context(["ethereum"])
 
         result = await contract_call(
+            ctx,
+            {
+                "chain": "ethereum",
+                "contract_address": "0x000000000000000000000000000000000000dEaD",
+                "abi_function": "balanceOf(address)",
+                "args": ["0x000000000000000000000000000000000000dEaD"],
+            },
+        )
+
+        self.assertEqual(result, "0x")
+        self.assertEqual(rpc.sent_raw, [])
+        self.assertEqual(rpc.calls[0][1], "eth_call")
+        self.assertTrue(rpc.calls[0][2][0]["data"].startswith("0x70a08231"))
+
+
+class NonEVMWriteTransactionTestCase(unittest.IsolatedAsyncioTestCase):
+    @patch("backend.tools.transaction_tools.decrypt_private_key", side_effect=_decrypt_side_effect)
+    @patch("backend.tools.transaction_tools.update_agent", new=AsyncMock())
+    async def test_send_transaction_signs_and_broadcasts_solana(self, mock_decrypt) -> None:
+        ctx, rpc = _context(["solana"])
+
+        result = await send_transaction(
+            ctx,
+            {
+                "chain": "solana",
+                "to_address": "11111111111111111111111111111112",
+                "amount": "0.000001",
+            },
+        )
+
+        self.assertEqual(result["protocol"], "solana")
+        self.assertEqual(result["tx_hash"], "solana-signature-456")
+        self.assertEqual(result["lamports"], 1000)
+        self.assertTrue(any(call[1] == "sendTransaction" for call in rpc.calls))
+        self.assertEqual(rpc.sent_raw, [])
+
+    @patch("backend.tools.transaction_tools.decrypt_private_key", side_effect=_decrypt_side_effect)
+    @patch("backend.tools.transaction_tools.update_agent", new=AsyncMock())
+    async def test_send_transaction_signs_and_broadcasts_tron(self, mock_decrypt) -> None:
+        ctx, rpc = _context(["tron"])
+
+        result = await send_transaction(
+            ctx,
+            {
+                "chain": "tron",
+                "to_address": "TPBkHycN1Hmr2bFcfjvp2fjkca1hfPbPka",
+                "amount": "1",
+            },
+        )
+
+        self.assertEqual(result["protocol"], "tron")
+        self.assertEqual(result["tx_hash"], "tron-tx-hash-123")
+        self.assertTrue(any(call[1] == "wallet/createtransaction" for call in rpc.calls))
+        self.assertTrue(any(call[1] == "wallet/broadcasttransaction" for call in rpc.calls))
+        self.assertEqual(rpc.sent_raw, [])
+
+    async def test_unsupported_native_protocol_defers_without_broadcast(self) -> None:
+        ctx, rpc = _context(["near"])
+
+        result = await send_transaction(
+            ctx,
+            {
+                "chain": "near",
+                "to_address": "recipient.near",
+                "amount": "1",
+            },
+        )
+
+        self.assertEqual(result["protocol"], "near")
+        self.assertEqual(result["status"], "deferred")
+        self.assertEqual(rpc.calls, [])
+        self.assertEqual(rpc.sent_raw, [])
+
+    async def test_non_evm_token_and_contract_writes_defer_without_broadcast(self) -> None:
+        ctx, rpc = _context(["solana", "tron"])
+
+        token_result = await send_erc20(
+            ctx,
+            {
+                "chain": "solana",
+                "token_address": "TokenMint",
+                "to_address": "Recipient",
+                "amount": "1",
+            },
+        )
+        contract_result = await contract_call(
             ctx,
             {
                 "chain": "tron",
@@ -134,12 +283,14 @@ class TronWriteTransactionTestCase(unittest.IsolatedAsyncioTestCase):
                 "abi_function": "transfer",
                 "args": [],
                 "data": "a9059cbb",
+                "value": "1",
             },
         )
 
-        self.assertNotEqual(result.get("status"), "deferred")
-        self.assertEqual(result["protocol"], "tron")
-        self.assertEqual(result["tx_hash"], "tron-tx-hash-123")
+        self.assertEqual(token_result["status"], "deferred")
+        self.assertEqual(contract_result["status"], "deferred")
+        self.assertEqual(rpc.calls, [])
+        self.assertEqual(rpc.sent_raw, [])
 
 
 if __name__ == "__main__":

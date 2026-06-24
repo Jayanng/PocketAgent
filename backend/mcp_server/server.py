@@ -35,7 +35,9 @@ from mcp.types import (
 )
 
 try:
+    from ..config import ensure_database_directory
     from ..database import get_agent
+    from ..services.agent_auth import verify_agent_access_token
     from ..services.pocket_rpc import PocketRPCClient
     from ..services.relay_tracker import RelayTrackerService
     from ..tools import TOOL_REGISTRY, ToolContext, execute_tool
@@ -43,7 +45,9 @@ try:
     from .resources import ReadResourceContents, list_mcp_resources, read_resource_contents
     from .tools import list_mcp_tools
 except ImportError:
+    from config import ensure_database_directory
     from database import get_agent
+    from services.agent_auth import verify_agent_access_token
     from services.pocket_rpc import PocketRPCClient
     from services.relay_tracker import RelayTrackerService
     from tools import TOOL_REGISTRY, ToolContext, execute_tool
@@ -53,9 +57,9 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Capabilities that need an agent wallet (encrypted key) to sign. For these,
-# the caller must pass agent_id; the server loads the agent from the DB so the
-# executor can decrypt and sign — identical to the chat path.
+# Capabilities that need an agent context. Native EVM/Solana/Tron transfer
+# executors use protocol-specific encrypted keys for signing; unsupported
+# write paths return an explicit deferred status.
 _TRANSACT_CAPABILITIES = {"transact"}
 
 # Shared service singletons (cheap to construct; hold an httpx pool + cache).
@@ -65,9 +69,15 @@ _relay_tracker = RelayTrackerService()
 server = Server("pocketagent")
 
 
+def _requires_agent_access(spec: Any) -> bool:
+    required = spec.schema.get("function", {}).get("parameters", {}).get("required", [])
+    return spec.capability in _TRANSACT_CAPABILITIES or "agent_id" in required
+
+
 async def _load_agent(agent_id: str) -> dict[str, Any]:
     """Load a full agent row (incl. encrypted_private_key) from the DB."""
     settings = _rpc_client.settings
+    ensure_database_directory(settings.database_path)
     db = await aiosqlite.connect(settings.database_path)
     db.row_factory = aiosqlite.Row
     try:
@@ -79,11 +89,12 @@ async def _load_agent(agent_id: str) -> dict[str, Any]:
 async def _build_context(args: dict[str, Any]) -> ToolContext:
     """Build a ToolContext for a tool call.
 
-    Transact tools require an agent (to decrypt + sign with its wallet). Read,
-    compare, and analytics tools run with a minimal default context — they
-    only need rpc_client + relay_tracker, not an agent. The agent's `chains`
-    restriction still applies to transact: the chain must be enabled for the
-    agent (validate_chain_allowed enforces this in the executor).
+    Transact tools require an agent context. EVM/Solana/Tron native transfer
+    tools decrypt and sign with protocol-specific wallets; unsupported write
+    tools return an explicit deferred status. Read, compare, and analytics
+    tools run with a minimal default context. The agent's `chains` restriction
+    still applies to transact: the chain must be enabled for the agent
+    (validate_chain_allowed enforces this in the executor).
     """
     agent: dict[str, Any] = {}
     agent_id = args.get("agent_id")
@@ -91,6 +102,8 @@ async def _build_context(args: dict[str, Any]) -> ToolContext:
         agent = await _load_agent(str(agent_id))
         if not agent:
             raise ValueError(f"Agent not found: {agent_id}")
+        if not verify_agent_access_token(agent, args.get("agent_access_token")):
+            raise PermissionError("Valid agent_access_token is required for this agent.")
     return ToolContext(agent=agent, rpc_client=_rpc_client, relay_tracker=_relay_tracker, db=None)
 
 
@@ -113,19 +126,32 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[TextConten
         return [_err(f"Unknown tool: {name}")]
     spec = TOOL_REGISTRY[name]
 
-    # Transact tools need an agent wallet to sign.
-    if spec.capability in _TRANSACT_CAPABILITIES and not args.get("agent_id"):
+    # Transact tools need an agent context for chain permissions and, on EVM,
+    # wallet signing.
+    requires_agent_access = _requires_agent_access(spec)
+    if requires_agent_access and not args.get("agent_id"):
         return [_err(
             f"Tool '{name}' requires an 'agent_id' argument to load the signing wallet. "
             "Pass the agent_id of a funded, active agent whose chains include the target chain."
+        )]
+    if requires_agent_access and not args.get("agent_access_token"):
+        return [_err(
+            f"Tool '{name}' requires an 'agent_access_token' argument to authorize the agent."
         )]
 
     try:
         context = await _build_context(args)
         # Strip server-only meta keys before passing args to the executor.
-        clean_args = {k: v for k, v in args.items() if k != "agent_id"} if spec.capability in _TRANSACT_CAPABILITIES else args
+        if spec.capability in _TRANSACT_CAPABILITIES:
+            clean_args = {
+                k: v for k, v in args.items() if k not in {"agent_id", "agent_access_token"}
+            }
+        else:
+            clean_args = {k: v for k, v in args.items() if k != "agent_access_token"}
         result = await execute_tool(name, context, clean_args)
     except ValueError as exc:
+        return [_err(str(exc))]
+    except PermissionError as exc:
         return [_err(str(exc))]
     except Exception as exc:  # noqa: BLE001 — surface any executor failure to the client as text
         logger.exception("MCP call_tool '%s' failed", name)
@@ -142,10 +168,7 @@ async def handle_list_resources() -> list[Resource]:
 
 @server.read_resource()
 async def handle_read_resource(uri: AnyUrl) -> list[ReadResourceContents]:
-    contents = await read_resource_contents(str(uri), rpc=_rpc_client, tracker=_relay_tracker)
-    # read_resource_contents returns TextResourceContents (a subclass of
-    # ReadResourceContents); the MCP server accepts the broader type.
-    return contents  # type: ignore[return-value]
+    return await read_resource_contents(str(uri), rpc=_rpc_client, tracker=_relay_tracker)
 
 
 @server.list_prompts()

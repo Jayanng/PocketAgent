@@ -23,7 +23,9 @@
   --toast-bg: oklch(18% 0.015 255);
   --toast-foreground: oklch(92.5% 0.005 255);
 
-  /* Geist fonts — variables set by geist/font/{sans,mono} package */
+  /* Offline-safe font stacks with no build-time remote fetch. */
+  --font-inter: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-jetbrains-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --font-body: var(--font-inter);
   --font-title: var(--font-inter);
   --font-code: var(--font-jetbrains-mono);

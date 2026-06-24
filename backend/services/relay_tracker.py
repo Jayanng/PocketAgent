@@ -4,10 +4,10 @@ from typing import Any
 import aiosqlite
 
 try:
-    from ..config import get_settings
+    from ..config import ensure_database_directory, get_settings
     from ..database import create_relay_log
 except ImportError:
-    from config import get_settings
+    from config import ensure_database_directory, get_settings
     from database import create_relay_log
 
 
@@ -18,6 +18,7 @@ class RelayTrackerService:
         self.settings = get_settings()
 
     async def _connect(self) -> aiosqlite.Connection:
+        ensure_database_directory(self.settings.database_path)
         db = await aiosqlite.connect(self.settings.database_path)
         db.row_factory = aiosqlite.Row
         return db

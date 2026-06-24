@@ -10,11 +10,18 @@ error handling, and transaction guard (agent_id required for transact tools).
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("LIVE_MCP_TESTS") != "1",
+    reason="Set LIVE_MCP_TESTS=1 to run live MCP tests against Pocket RPC endpoints.",
+)
 
 
 @pytest.mark.asyncio

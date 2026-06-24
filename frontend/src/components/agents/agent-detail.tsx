@@ -7,8 +7,10 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { ChainIcon } from "@/components/chains/chain-icon";
 import { FundAgentDialog } from "@/components/agents/fund-agent-dialog";
+import { getAgentAccessToken } from "@/lib/api";
 import type { Agent, AgentBalancesResponse, Conversation } from "@/lib/api";
 import { CHAIN_CONFIGS } from "@/lib/constants";
 import { useAgentStore } from "@/store/agent-store";
@@ -23,13 +25,20 @@ type AgentDetailProps = {
 export function AgentDetail({ agent, conversations, balances, isLoadingBalances }: AgentDetailProps) {
   const [fundingOpen, setFundingOpen] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
-  const { deleteAgent, loadBalances } = useAgentStore();
+  const [tokenDraft, setTokenDraft] = useState("");
+  const { deleteAgent, importAgentAccessToken, isLoading, loadBalances } = useAgentStore();
+  const hasActiveToken = agent ? Boolean(getAgentAccessToken(agent.id)) : false;
+  const canUseProtectedRoutes = Boolean(agent?.id && hasActiveToken);
+  const hasWalletData = Boolean(
+    agent?.wallet_address || Object.keys(agent?.wallet_addresses ?? {}).length > 0
+  );
+  const hasProtectedDetails = canUseProtectedRoutes && hasWalletData;
 
   useEffect(() => {
-    if (agent?.id && agent.is_active) {
+    if (hasProtectedDetails && agent?.id) {
       void loadBalances(agent.id);
     }
-  }, [agent?.id, agent?.is_active, loadBalances]);
+  }, [agent?.id, hasProtectedDetails, loadBalances]);
 
   if (!agent) {
     return (
@@ -44,6 +53,8 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
   }
 
   const walletAddress = agent.wallet_address ?? "";
+  const spentByChain = agent.total_spent_by_chain ?? {};
+  const spentEntries = Object.entries(spentByChain).filter(([, value]) => Number(value) > 0);
 
   const copyWallet = async () => {
     if (!walletAddress) return;
@@ -52,8 +63,15 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
   };
 
   const confirmDelete = async () => {
-    if (!window.confirm(`Delete ${agent.name}? The agent will be marked inactive.`)) return;
+    if (!window.confirm(`Delete ${agent.name}? This removes it from the active agent list.`)) return;
     await deleteAgent(agent.id);
+  };
+
+  const importToken = async () => {
+    const imported = await importAgentAccessToken(agent.id, tokenDraft);
+    if (imported) {
+      setTokenDraft("");
+    }
   };
 
   return (
@@ -68,7 +86,12 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
             <ExternalLink size={15} />
             Chat with Agent
           </Link>
-          <Button variant="secondary" onClick={() => setFundingOpen(true)}>
+          <Button
+            variant="secondary"
+            onClick={() => setFundingOpen(true)}
+            disabled={!hasProtectedDetails}
+            title={hasProtectedDetails ? "Fund agent" : "Import the agent access token to load wallet addresses"}
+          >
             Fund Agent
           </Button>
           <Button variant="ghost" size="icon" onClick={confirmDelete} title="Delete agent">
@@ -77,26 +100,62 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
         </div>
       </div>
 
-      <div className="grid gap-3 py-4 md:grid-cols-3">
+      {!hasProtectedDetails && (
+        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+          <p className="text-sm font-semibold">Access token required</p>
+          <p className="mt-1 text-sm">
+            {hasActiveToken
+              ? "The stored token could not load this agent's protected wallet details. Paste a valid token to continue."
+              : "Paste the token shown when this agent was created to view wallet addresses and use protected actions."}
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={tokenDraft}
+              onChange={(event) => setTokenDraft(event.target.value)}
+              placeholder="Agent access token"
+              type="password"
+            />
+            <Button onClick={() => void importToken()} disabled={isLoading || !tokenDraft.trim()}>
+              {isLoading ? "Verifying..." : "Save Token"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-3 py-4 md:grid-cols-2">
         <div className="rounded-md border border-border bg-background p-3">
-          <p className="text-xs font-medium uppercase text-muted-foreground">Spending Cap</p>
-          <p className="mt-2 text-sm font-semibold">{agent.spending_cap ?? 0} ETH</p>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Per-Chain Spending Cap</p>
+          <p className="mt-2 text-sm font-semibold">{agent.spending_cap ?? 0} native units</p>
         </div>
         <div className="rounded-md border border-border bg-background p-3">
-          <p className="text-xs font-medium uppercase text-muted-foreground">Total Spent</p>
-          <p className="mt-2 text-sm font-semibold">{agent.total_spent ?? 0} ETH</p>
-        </div>
-        <div className="rounded-md border border-border bg-background p-3">
-          <p className="text-xs font-medium uppercase text-muted-foreground">Status</p>
-          <p className="mt-2 text-sm font-semibold">{agent.is_active ? "Active" : "Inactive"}</p>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Spent by Chain</p>
+          {spentEntries.length ? (
+            <div className="mt-2 space-y-1">
+              {spentEntries.slice(0, 3).map(([chain, value]) => {
+                const config = CHAIN_CONFIGS[chain as keyof typeof CHAIN_CONFIGS];
+                return (
+                  <p key={chain} className="text-sm font-semibold">
+                    {Number(value).toFixed(6)} {config?.symbol ?? chain}
+                  </p>
+                );
+              })}
+              {spentEntries.length > 3 && (
+                <p className="text-xs text-muted-foreground">+{spentEntries.length - 3} more</p>
+              )}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm font-semibold">0 native units</p>
+          )}
         </div>
       </div>
 
       <div className="rounded-md border border-border bg-background p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Wallet Address</p>
-            <code className="mt-2 block break-all text-xs">{walletAddress || "No wallet address available"}</code>
+            <p className="text-xs font-medium uppercase text-muted-foreground">Primary EVM Wallet Address</p>
+            <code className="mt-2 block break-all text-xs">
+              {walletAddress || (hasProtectedDetails ? "No wallet address available" : "Import access token to view wallet address")}
+            </code>
           </div>
           <Button variant="secondary" size="sm" onClick={copyWallet} disabled={!walletAddress}>
             <Copy size={14} />
@@ -109,7 +168,12 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
         <section>
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">Chain Balances</h3>
-            <Button variant="secondary" size="sm" onClick={() => void loadBalances(agent.id)} disabled={isLoadingBalances}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void loadBalances(agent.id)}
+              disabled={isLoadingBalances || !hasProtectedDetails}
+            >
               {isLoadingBalances ? "Loading..." : "Load"}
             </Button>
           </div>
@@ -157,7 +221,9 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
         </section>
       </div>
 
-      <FundAgentDialog agent={agent} open={fundingOpen} onClose={() => setFundingOpen(false)} />
+      {hasProtectedDetails && (
+        <FundAgentDialog agent={agent} open={fundingOpen && hasProtectedDetails} onClose={() => setFundingOpen(false)} />
+      )}
     </Card>
   );
 }

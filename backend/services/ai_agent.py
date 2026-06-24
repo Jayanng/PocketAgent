@@ -3,11 +3,10 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import aiosqlite
-import httpx
 from openai import AsyncOpenAI
 
 try:
-    from ..config import get_settings
+    from ..config import ensure_database_directory, get_settings
     from ..database import (
         create_conversation,
         create_message,
@@ -19,7 +18,7 @@ try:
     from .pocket_rpc import PocketRPCClient
     from .relay_tracker import RelayTrackerService
 except ImportError:
-    from config import get_settings
+    from config import ensure_database_directory, get_settings
     from database import (
         create_conversation,
         create_message,
@@ -38,16 +37,26 @@ class AIAgentService:
     def __init__(self) -> None:
         settings = get_settings()
         self.settings = settings
-        api_key = settings.gmi_api_key if "gmi-serving.com" in settings.openai_base_url else settings.openai_api_key
-        self.openai_client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=settings.openai_base_url,
-            http_client=httpx.AsyncClient(),
-        )
+        self.api_key = self._provider_api_key(settings)
+        # The OpenAI client is built lazily on first use so that constructing an
+        # AIAgentService never requires credentials. openai>=2 raises at
+        # construction time when api_key is empty, which would otherwise fire
+        # before the request guard rails (agent/conversation/access checks) and
+        # the explicit api_key check inside chat() — masking 404/403/410 as 503.
+        self._openai_client: AsyncOpenAI | None = None
         self.rpc_client = PocketRPCClient()
         self.relay_tracker = RelayTrackerService()
         self.model = settings.openai_model
         self._active_db: aiosqlite.Connection | None = None
+
+    @property
+    def openai_client(self) -> AsyncOpenAI:
+        if self._openai_client is None:
+            self._openai_client = AsyncOpenAI(
+                api_key=self.api_key,
+                base_url=self.settings.openai_base_url,
+            )
+        return self._openai_client
 
     async def chat(
         self,
@@ -87,9 +96,8 @@ class AIAgentService:
                 if conversation.get("agent_id") != agent_id:
                     raise PermissionError("Conversation does not belong to this agent.")
 
-            api_key = self.settings.gmi_api_key if "gmi-serving.com" in self.settings.openai_base_url else self.settings.openai_api_key
-            if not api_key:
-                raise RuntimeError("OPENAI_API_KEY is not configured.")
+            if not self.api_key:
+                raise RuntimeError("GMI_API_KEY or OPENAI_API_KEY is not configured.")
 
             # Save user message first so history is durable even if model/tool step fails.
             await create_message(
@@ -212,6 +220,16 @@ class AIAgentService:
         capabilities = set(agent.get("capabilities") or [])
         return get_tool_schemas(capabilities)
 
+    async def close(self) -> None:
+        if self._openai_client is not None:
+            await self._openai_client.close()
+
+    @staticmethod
+    def _provider_api_key(settings: Any) -> str:
+        if "gmi-serving.com" in settings.openai_base_url.lower():
+            return settings.gmi_api_key or settings.openai_api_key
+        return settings.openai_api_key or settings.gmi_api_key
+
     async def _execute_tool_call(self, agent: dict[str, Any], tool_name: str, args: dict[str, Any]) -> Any:
         args = self._inject_connected_wallet(agent, tool_name, args)
         tool_name, args = self._normalize_tool_call(tool_name, args)
@@ -290,6 +308,7 @@ class AIAgentService:
 
     @asynccontextmanager
     async def _connect_db(self) -> Any:
+        ensure_database_directory(self.settings.database_path)
         db = await aiosqlite.connect(self.settings.database_path)
         await db.execute("PRAGMA foreign_keys = ON;")
         db.row_factory = aiosqlite.Row

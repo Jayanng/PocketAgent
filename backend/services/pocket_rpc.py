@@ -166,7 +166,7 @@ class PocketRPCClient:
                         params=query_params,
                     )
                 last_response = response
-                if response.status_code in {429, 503} and attempt < max_retries:
+                if response.status_code in {408, 429, 503} and attempt < max_retries:
                     await asyncio.sleep(2**attempt)
                     continue
                 if 500 <= response.status_code < 600 and attempt < max_retries:
@@ -252,7 +252,10 @@ class PocketRPCClient:
         return await self._logged_json_rpc_call(chain, payload)
 
     async def _call_near(self, chain: str, method: str, params: list[Any] | None = None) -> Any:
-        payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or []}
+        rpc_params: Any = params or []
+        if method in {"block", "query"} and len(rpc_params) == 1 and isinstance(rpc_params[0], dict):
+            rpc_params = rpc_params[0]
+        payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": rpc_params}
         return await self._logged_json_rpc_call(chain, payload)
 
     async def _call_tron(self, chain: str, method: str, params: list[Any] | None = None) -> Any:
@@ -508,6 +511,8 @@ class PocketRPCClient:
         chain = self._canonical_chain(chain)
         if self.get_protocol(chain) != "evm":
             raise ValueError("send_raw_transaction currently supports EVM chains only.")
+        if not raw_tx.startswith("0x"):
+            raw_tx = f"0x{raw_tx}"
         tx_hash = await self.call(chain, "eth_sendRawTransaction", [raw_tx])
         if not isinstance(tx_hash, str):
             raise RuntimeError("Unexpected eth_sendRawTransaction response")

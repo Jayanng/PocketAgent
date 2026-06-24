@@ -85,8 +85,7 @@ export function AppShell({ children }: AppShellProps) {
   useEffect(() => {
     const check = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/agents`, {
-          method: "HEAD",
+        const res = await fetch(`${API_BASE_URL}/health`, {
           signal: AbortSignal.timeout(5000),
         });
         setRpcDown(!res.ok);
@@ -106,7 +105,7 @@ export function AppShell({ children }: AppShellProps) {
           visible={rpcDown}
           onRetry={async () => {
             try {
-              const res = await fetch(`${API_BASE_URL}/api/agents`, { method: "HEAD", signal: AbortSignal.timeout(5000) });
+              const res = await fetch(`${API_BASE_URL}/health`, { signal: AbortSignal.timeout(5000) });
               setRpcDown(!res.ok);
             } catch { setRpcDown(true); }
           }}

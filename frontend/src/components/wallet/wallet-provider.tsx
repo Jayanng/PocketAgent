@@ -14,9 +14,18 @@ import { POCKET_RPC_ENDPOINTS } from "@/lib/constants";
 
 const chains = [ethereum, polygon, arbitrum, optimism, bsc, avalanche, base] as const;
 
+const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
+const placeholderProjectIds = new Set(["pocketagent-local", "your-walletconnect-project-id"]);
+
+if (!walletConnectProjectId || placeholderProjectIds.has(walletConnectProjectId)) {
+  throw new Error(
+    "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID must be set to a real WalletConnect Cloud project ID before wallet features can run."
+  );
+}
+
 export const walletConfig = getDefaultConfig({
   appName: "PocketAgent",
-  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "pocketagent-local",
+  projectId: walletConnectProjectId,
   chains,
   ssr: true,
   transports: {

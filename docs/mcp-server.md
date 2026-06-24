@@ -3,9 +3,9 @@
 The PocketAgent MCP (Model Context Protocol) server exposes **49 tools**, **5
 resources**, and **4 prompts** over stdio, so any MCP-compatible client —
 Claude Desktop, Codex, Cursor, etc. — can drive Pocket Network's decentralized
-RPC across 60+ chains directly.
+RPC across 52 chains directly.
 
-> One MCP server. 60+ chains. Zero centralized RPC. Powered by Pocket Network.
+> One MCP server. 52 chains. Zero centralized RPC. Powered by Pocket Network.
 
 ## Why an MCP server?
 
@@ -13,9 +13,9 @@ BlockchainQuery (the PNF official MCP server, v2.1.2) is a Node.js MCP server
 distributed as a Claude Desktop Extension. It can't be imported into a Python
 backend, and it's **read-only**. PocketAgent reimplements its 37-tool read
 surface directly against Pocket Network RPC (via the protocol dispatcher in
-`pocket_rpc.py`) and adds **12 custom tools** — compare, write (EVM + Solana +
-Tron), analytics, POKT cost, compositional wallet analysis, and simulation —
-that BlockchainQuery does not provide. The MCP server makes all of this
+`pocket_rpc.py`) and adds **12 custom tools** — compare, guarded native writes
+for EVM/Solana/Tron, analytics, POKT cost, compositional wallet analysis, and simulation — that
+BlockchainQuery does not provide. The MCP server makes all of this
 available to any AI client, not just PocketAgent's own chat UI.
 
 ## Architecture: single-layer adapter
@@ -44,7 +44,7 @@ MCP client (Claude Desktop / Codex)
            ▼
 ┌─────────────────────────────┐
 │  services/pocket_rpc.py     │  EVM / Solana / Cosmos / Sui / Near / Tron
-│  → Pocket Network RPC       │  60+ chains, cached + backoff
+│  → Pocket Network RPC       │  52 chains, cached + backoff
 └─────────────────────────────┘
 ```
 
@@ -63,6 +63,10 @@ The server speaks MCP over stdio. It is designed to be launched **by** an MCP
 client (which spawns it as a subprocess), not run manually — see the client
 configs below.
 
+`DATABASE_PATH` may be absolute or relative. Relative paths resolve from the
+`backend/` directory, so API and MCP processes share the same SQLite file even
+when launched from different working directories.
+
 ## Configure with Claude Desktop
 
 Add to `claude_desktop_config.json` (macOS:
@@ -77,7 +81,7 @@ Add to `claude_desktop_config.json` (macOS:
       "args": ["-m", "backend.mcp_server.server"],
       "cwd": "C:/Users/dell/Documents/VS_code/PocketAgent",
       "env": {
-        "DATABASE_PATH": "./pocketagent.db",
+        "DATABASE_PATH": "./data/pocketagent.db",
         "ENCRYPTION_KEY": "<your-32-byte-key>",
         "OPENAI_API_KEY": "<optional, only for the chat path>"
       }
@@ -102,7 +106,7 @@ args = ["-m", "backend.mcp_server.server"]
 cwd = "C:/Users/dell/Documents/VS_code/PocketAgent"
 
 [mcp_servers.pocketagent.env]
-DATABASE_PATH = "./pocketagent.db"
+DATABASE_PATH = "./data/pocketagent.db"
 ENCRYPTION_KEY = "<your-32-byte-key>"
 ```
 
@@ -115,7 +119,7 @@ For a JSON-style Codex config (`settings.json`):
       "command": "python",
       "args": ["-m", "backend.mcp_server.server"],
       "cwd": "C:/Users/dell/Documents/VS_code/PocketAgent",
-      "env": { "DATABASE_PATH": "./pocketagent.db", "ENCRYPTION_KEY": "<key>" }
+      "env": { "DATABASE_PATH": "./data/pocketagent.db", "ENCRYPTION_KEY": "<key>" }
     }
   }
 }
@@ -130,8 +134,12 @@ For a JSON-style Codex config (`settings.json`):
 All tools return JSON text. Reads are protocol-dispatched (EVM/Solana/Cosmos/
 Sui/Near/Tron) and enriched with USD values where possible. Write tools
 (`send_transaction`, `send_erc20`, `contract_call`, `simulate_transaction`)
-require an `agent_id` argument — the server loads that agent's wallet from the
-DB and signs with its key (the chain must be enabled for the agent).
+require an `agent_id` argument. Live native transfer signing and broadcast are
+currently enabled for EVM, Solana, and Tron. ERC-20 and contract writes are
+EVM-only. Cosmos, Sui, NEAR, non-EVM token transfers, and non-EVM contract
+writes return a structured `{"status": "deferred"}` result until
+protocol-specific transaction construction, signing, broadcast, and
+confirmation are implemented.
 
 ### Read — 37 tools (mirror BlockchainQuery's surface)
 
@@ -165,10 +173,10 @@ DB and signs with its key (the chain must be enabled for the agent).
 - `recommend_chain` — ranked best chain for an operation type
 - `estimate_transaction_cost` — gas + token cost before executing
 
-### Write — 3 tools (EVM + Solana + Tron; require `agent_id`)
-- `send_transaction` — native token transfer
-- `send_erc20` — ERC-20 / TRC-20 / SPL token transfer
-- `contract_call` — read or write a contract/program
+### Write — 3 tools (native EVM/Solana/Tron; require `agent_id`)
+- `send_transaction` — native transfers on EVM, Solana, and Tron; other protocols return deferred
+- `send_erc20` — ERC-20 transfer on EVM; non-EVM token transfers return deferred
+- `contract_call` — EVM read/write contract call; non-EVM contract writes return deferred
 
 ### Analytics — 3 tools
 - `get_relay_stats`, `get_relay_history`, `get_cost_breakdown`
@@ -228,11 +236,11 @@ event signatures (Transfer, Approval, Swap, …) into
 1. Start the backend API (`uvicorn backend.main:app`) so the DB + relay logs exist.
 2. Create + fund an agent (via the `/agents` API or the chat UI's agent creator).
 3. Point Claude Desktop / Codex at this MCP server (configs above).
-4. Ask the AI: *"Analyze wallet 0xd8dA… across all my chains, find the
-   cheapest chain for a native transfer, and send 0.01 ETH on the recommended
-   chain using agent <agent_id>."* — the AI will call `analyze_wallet` →
-   `recommend_chain` → `estimate_transaction_cost` → `send_transaction`,
-   signing with the agent wallet via Pocket RPC.
+4. Ask the AI: *"Analyze wallet 0xd8dA… across ethereum, polygon, and
+   arbitrum, find the cheapest EVM chain for a native transfer, and send 0.01
+   ETH on the recommended chain using agent <agent_id>."* — the AI will call
+   `analyze_wallet` → `recommend_chain` → `estimate_transaction_cost` →
+   `send_transaction`, signing with the agent wallet via Pocket RPC.
 
 ## Testing
 

@@ -5,6 +5,8 @@ from decimal import Decimal
 from typing import Any
 
 from eth_account import Account
+from eth_abi import encode as abi_encode
+from eth_utils import keccak
 
 try:
     from ..database import update_agent
@@ -23,33 +25,66 @@ def _native_to_wei(amount: str | int | float | Decimal, decimals: int = 18) -> i
     return int(Decimal(str(amount)) * (Decimal(10) ** decimals))
 
 
-def _require_agent_private_key(context: ToolContext) -> str:
-    encrypted_key = context.agent.get("encrypted_private_key")
+def _wei_to_native(amount_wei: int) -> Decimal:
+    return Decimal(amount_wei) / (Decimal(10) ** 18)
+
+
+def _require_protocol_private_key(context: ToolContext, protocol: str) -> str:
+    encrypted_wallets = context.agent.get("encrypted_wallets") or {}
+    encrypted_key = encrypted_wallets.get(protocol) if isinstance(encrypted_wallets, dict) else None
+    if not encrypted_key and protocol == "evm":
+        encrypted_key = context.agent.get("encrypted_private_key")
     if not encrypted_key:
-        raise PermissionError("Agent private key is not available for transaction signing.")
+        raise PermissionError(
+            f"Agent wallet is not configured for protocol '{protocol}'. "
+            "Create a new agent so protocol-specific wallets can be generated."
+        )
     return decrypt_private_key(str(encrypted_key))
 
 
-def _enforce_spending_cap(context: ToolContext, amount_native: Decimal) -> None:
+def _spent_by_chain(context: ToolContext) -> dict[str, Decimal]:
+    raw = context.agent.get("total_spent_by_chain") or {}
+    if not isinstance(raw, dict):
+        return {}
+    spent: dict[str, Decimal] = {}
+    for chain, amount in raw.items():
+        try:
+            spent[str(chain)] = Decimal(str(amount))
+        except Exception:
+            continue
+    return spent
+
+
+def _chain_spent(context: ToolContext, chain: str, spent_by_chain: dict[str, Decimal]) -> Decimal:
+    if chain in spent_by_chain:
+        return spent_by_chain[chain]
+    if spent_by_chain:
+        return Decimal("0")
+    return Decimal(str(context.agent.get("total_spent") or 0))
+
+
+def _enforce_spending_cap(context: ToolContext, chain: str, amount_native: Decimal) -> None:
     spending_cap = Decimal(str(context.agent.get("spending_cap") or 0))
-    total_spent = Decimal(str(context.agent.get("total_spent") or 0))
+    spent_by_chain = _spent_by_chain(context)
+    chain_spent = _chain_spent(context, chain, spent_by_chain)
     if spending_cap <= 0:
         raise PermissionError("Agent spending cap is zero; enable a positive cap before sending transactions.")
-    if total_spent + amount_native > spending_cap:
+    if chain_spent + amount_native > spending_cap:
         raise PermissionError(
-            f"Transaction exceeds spending cap: {total_spent + amount_native} ETH requested against {spending_cap} ETH cap."
+            f"Transaction exceeds {chain} spending cap: {chain_spent + amount_native} native units requested against {spending_cap} native-unit cap for this chain."
         )
 
 
-async def _record_native_spend(context: ToolContext, amount_native: Decimal) -> None:
-    if context.db is None:
-        return
+async def _record_native_spend(context: ToolContext, chain: str, amount_native: Decimal) -> None:
     agent_id = context.agent.get("id")
     if not agent_id:
         return
-    total_spent = Decimal(str(context.agent.get("total_spent") or 0)) + amount_native
-    await update_agent(context.db, str(agent_id), total_spent=float(total_spent))
-    context.agent["total_spent"] = float(total_spent)
+    spent_by_chain = _spent_by_chain(context)
+    spent_by_chain[chain] = _chain_spent(context, chain, spent_by_chain) + amount_native
+    serializable_spend = {key: float(value) for key, value in spent_by_chain.items()}
+    if context.db is not None:
+        await update_agent(context.db, str(agent_id), total_spent_by_chain=serializable_spend)
+    context.agent["total_spent_by_chain"] = serializable_spend
 
 
 def _encode_erc20_transfer(to_address: str, amount_units: int) -> str:
@@ -61,17 +96,90 @@ def _encode_erc20_transfer(to_address: str, amount_units: int) -> str:
     return f"0x{ERC20_TRANSFER_SELECTOR}{encoded_address}{encoded_amount}"
 
 
+def _split_abi_types(type_list: str) -> list[str]:
+    types: list[str] = []
+    depth = 0
+    start = 0
+    for index, char in enumerate(type_list):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif char == "," and depth == 0:
+            types.append(type_list[start:index].strip())
+            start = index + 1
+    tail = type_list[start:].strip()
+    if tail:
+        types.append(tail)
+    return types
+
+
+def _coerce_abi_arg(abi_type: str, value: Any) -> Any:
+    if abi_type.startswith(("uint", "int")):
+        return int(value)
+    if abi_type == "bool":
+        if isinstance(value, bool):
+            return value
+        return str(value).lower() in {"1", "true", "yes"}
+    if abi_type == "bytes":
+        if isinstance(value, str) and value.startswith("0x"):
+            return bytes.fromhex(value[2:])
+        return value
+    if abi_type.startswith("bytes") and abi_type != "bytes":
+        if isinstance(value, str) and value.startswith("0x"):
+            return bytes.fromhex(value[2:])
+    return value
+
+
+def _encode_abi_function_call(abi_function: str, args: list[Any]) -> str:
+    if "(" not in abi_function or not abi_function.endswith(")"):
+        raise ValueError(
+            "abi_function must be a canonical signature such as 'transfer(address,uint256)' "
+            "when raw data is not supplied."
+        )
+    open_paren = abi_function.index("(")
+    function_name = abi_function[:open_paren].strip()
+    type_list = abi_function[open_paren + 1:-1].strip()
+    if not function_name:
+        raise ValueError("abi_function must include a function name.")
+    abi_types = _split_abi_types(type_list) if type_list else []
+    if len(abi_types) != len(args):
+        raise ValueError(f"abi_function expects {len(abi_types)} arguments, got {len(args)}.")
+    selector = keccak(text=f"{function_name}({','.join(abi_types)})")[:4]
+    encoded_args = abi_encode(abi_types, [_coerce_abi_arg(t, v) for t, v in zip(abi_types, args, strict=True)])
+    return f"0x{(selector + encoded_args).hex()}"
+
+
+def _contract_call_data(args: dict[str, Any]) -> str:
+    raw_data = str(args.get("data") or "")
+    if raw_data and raw_data != "0x":
+        return raw_data if raw_data.startswith("0x") else f"0x{raw_data}"
+    abi_function = str(args.get("abi_function") or "")
+    call_args = args.get("args") or []
+    if abi_function:
+        if not isinstance(call_args, list):
+            raise ValueError("contract_call args must be a list.")
+        return _encode_abi_function_call(abi_function, call_args)
+    return "0x"
+
+
+def _json_rpc_quantity_tx(tx: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(tx)
+    for key in ("value", "gas", "gasPrice", "maxFeePerGas", "maxPriorityFeePerGas", "nonce"):
+        value = normalized.get(key)
+        if isinstance(value, int):
+            normalized[key] = hex(value)
+    return normalized
+
+
 async def _sign_and_send_evm_transaction(
     context: ToolContext,
     chain: str,
     tx: dict[str, Any],
     amount_for_cap: Decimal = Decimal("0"),
 ) -> dict[str, Any]:
-    private_key = _require_agent_private_key(context)
+    private_key = _require_protocol_private_key(context, "evm")
     account = Account.from_key(private_key)
-    if amount_for_cap > 0:
-        _enforce_spending_cap(context, amount_for_cap)
-
     chain_id = await context.rpc_client.get_chain_id(chain)
     nonce = await context.rpc_client.get_transaction_count(chain, account.address)
     gas_price = await context.rpc_client.call(chain, "eth_gasPrice", [])
@@ -86,14 +194,18 @@ async def _sign_and_send_evm_transaction(
     }
     if "gas" not in tx_payload:
         estimate_tx = {key: value for key, value in tx_payload.items() if key not in {"chainId", "nonce", "gasPrice"}}
-        gas_estimate = await context.rpc_client.call(chain, "eth_estimateGas", [estimate_tx])
+        gas_estimate = await context.rpc_client.call(chain, "eth_estimateGas", [_json_rpc_quantity_tx(estimate_tx)])
         tx_payload["gas"] = int(gas_estimate, 16) if isinstance(gas_estimate, str) else int(gas_estimate)
+
+    native_spend_for_cap = amount_for_cap + _wei_to_native(int(tx_payload["gas"]) * gas_price_wei)
+    if native_spend_for_cap > 0:
+        _enforce_spending_cap(context, chain, native_spend_for_cap)
 
     signed = Account.sign_transaction(tx_payload, private_key)
     raw_transaction = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction")
     tx_hash = await context.rpc_client.send_raw_transaction(chain, raw_transaction.hex())
-    if amount_for_cap > 0:
-        await _record_native_spend(context, amount_for_cap)
+    if native_spend_for_cap > 0:
+        await _record_native_spend(context, chain, native_spend_for_cap)
     return {
         "chain": chain,
         "protocol": "evm",
@@ -101,70 +213,59 @@ async def _sign_and_send_evm_transaction(
         "tx_hash": tx_hash,
         "gas": tx_payload["gas"],
         "gas_price_wei": gas_price_wei,
+        "cap_spend_native": str(native_spend_for_cap),
     }
-
-
-def _non_evm_write_deferred(protocol: str, chain: str) -> dict[str, Any]:
-    return {
-        "chain": chain,
-        "protocol": protocol,
-        "status": "deferred",
-        "message": (
-            "This MVP has live EVM signing. "
-            f"{protocol.title()} writes require protocol-specific key derivation and signing libraries before broadcast."
-        ),
-    }
-
-
-def _solana_keypair_from_private_key(private_key: str) -> Any:
-    """Build a solders Keypair from the stored agent private key.
-
-    The agent's key is stored as a 32-byte hex seed (matching how agents are
-    created for EVM). Solana keypairs are 32-byte seeds via solders.
-    """
-    from solders.keypair import Keypair
-
-    raw = bytes.fromhex(private_key.removeprefix("0x"))
-    return Keypair.from_seed(raw)
 
 
 async def _sign_and_send_solana_transaction(
     context: ToolContext,
+    chain: str,
     to_address: str,
     lamports: int,
     amount_for_cap: Decimal = Decimal("0"),
 ) -> dict[str, Any]:
-    """Sign and broadcast a Solana native (System program) transfer."""
+    from solders.hash import Hash
+    from solders.keypair import Keypair
+    from solders.message import MessageV0
     from solders.pubkey import Pubkey
     from solders.system_program import TransferParams, transfer
-    from solders.message import MessageV0
     from solders.transaction import VersionedTransaction
 
-    private_key = _require_agent_private_key(context)
+    private_key = _require_protocol_private_key(context, "solana")
     if amount_for_cap > 0:
-        _enforce_spending_cap(context, amount_for_cap)
+        _enforce_spending_cap(context, chain, amount_for_cap)
 
-    keypair = _solana_keypair_from_private_key(private_key)
+    raw_key = bytes.fromhex(private_key.removeprefix("0x"))
+    keypair = Keypair.from_bytes(raw_key) if len(raw_key) == 64 else Keypair.from_seed(raw_key)
     from_pubkey = keypair.pubkey()
     to_pubkey = Pubkey.from_string(to_address)
 
-    blockhash_resp = await context.rpc_client.call("solana", "getLatestBlockhash", [])
+    blockhash_resp = await context.rpc_client.call(chain, "getLatestBlockhash", [])
     blockhash_str = blockhash_resp.get("value", {}).get("blockhash") if isinstance(blockhash_resp, dict) else None
     if not blockhash_str:
         raise RuntimeError("Failed to fetch Solana recent blockhash for signing.")
-    from solders.hash import Hash
-    blockhash = Hash.from_string(blockhash_str)
 
-    instruction = transfer(TransferParams(from_pubkey=from_pubkey, to_pubkey=to_pubkey, lamports=lamports))
-    message = MessageV0.try_compile(from_pubkey, [instruction], [], blockhash)
+    instruction = transfer(
+        TransferParams(
+            from_pubkey=from_pubkey,
+            to_pubkey=to_pubkey,
+            lamports=lamports,
+        )
+    )
+    message = MessageV0.try_compile(from_pubkey, [instruction], [], Hash.from_string(blockhash_str))
     transaction = VersionedTransaction(message, [keypair])
-    raw_tx = base64.b64encode(bytes(transaction)).decode()
-
-    signature = await context.rpc_client.send_raw_transaction("solana", raw_tx)
+    raw_tx = base64.b64encode(bytes(transaction)).decode("ascii")
+    signature = await context.rpc_client.call(
+        chain,
+        "sendTransaction",
+        [raw_tx, {"encoding": "base64", "skipPreflight": False}],
+    )
+    if not isinstance(signature, str):
+        raise RuntimeError(f"Unexpected Solana sendTransaction response: {signature}")
     if amount_for_cap > 0:
-        await _record_native_spend(context, amount_for_cap)
+        await _record_native_spend(context, chain, amount_for_cap)
     return {
-        "chain": "solana",
+        "chain": chain,
         "protocol": "solana",
         "from": str(from_pubkey),
         "tx_hash": signature,
@@ -174,45 +275,44 @@ async def _sign_and_send_solana_transaction(
 
 async def _sign_and_send_tron_transaction(
     context: ToolContext,
+    chain: str,
     to_address: str,
     amount_sun: int,
     amount_for_cap: Decimal = Decimal("0"),
 ) -> dict[str, Any]:
-    """Sign and broadcast a Tron native TRX transfer."""
     from tronpy.keys import PrivateKey
 
-    private_key = _require_agent_private_key(context)
+    private_key = _require_protocol_private_key(context, "tron")
     if amount_for_cap > 0:
-        _enforce_spending_cap(context, amount_for_cap)
+        _enforce_spending_cap(context, chain, amount_for_cap)
 
-    priv = PrivateKey.fromhex(private_key.removeprefix("0x"))
-    from_address = priv.public_key.to_base58check_address()
-
-    # Tron native transfer: build a raw contract-less transaction. The Pocket
-    # public Tron endpoint accepts wallet/broadcasttransaction with a pre-signed
-    # payload. We construct the canonical transfer and sign it with tronpy.
-    raw_tx = await context.rpc_client.call(
-        "tron",
-        "wallet/broadcasttransaction",
+    tron_key = PrivateKey.fromhex(private_key.removeprefix("0x"))
+    from_address = tron_key.public_key.to_base58check_address()
+    unsigned = await context.rpc_client.call(
+        chain,
+        "wallet/createtransaction",
         [
             {
-                "to_address": to_address,
                 "owner_address": from_address,
+                "to_address": to_address,
                 "amount": amount_sun,
                 "visible": True,
             }
         ],
     )
-    # The public RPC signs server-side for broadcast; we record the from address
-    # for audit and treat a truthy result as success.
-    success = bool(raw_tx.get("result", False)) if isinstance(raw_tx, dict) else False
-    tx_hash = raw_tx.get("txid") if isinstance(raw_tx, dict) else None
-    if not success or not tx_hash:
-        raise RuntimeError(f"Tron broadcast failed: {raw_tx}")
+    if not isinstance(unsigned, dict) or not unsigned.get("txID"):
+        raise RuntimeError(f"Unexpected Tron create transaction response: {unsigned}")
+
+    signature = tron_key.sign_msg_hash(bytes.fromhex(str(unsigned["txID"]))).hex()
+    signed = {**unsigned, "signature": [signature]}
+    broadcast = await context.rpc_client.call(chain, "wallet/broadcasttransaction", [signed])
+    if not isinstance(broadcast, dict) or not bool(broadcast.get("result")):
+        raise RuntimeError(f"Tron broadcast failed: {broadcast}")
+    tx_hash = str(broadcast.get("txid") or unsigned["txID"])
     if amount_for_cap > 0:
-        await _record_native_spend(context, amount_for_cap)
+        await _record_native_spend(context, chain, amount_for_cap)
     return {
-        "chain": "tron",
+        "chain": chain,
         "protocol": "tron",
         "from": from_address,
         "tx_hash": tx_hash,
@@ -220,88 +320,16 @@ async def _sign_and_send_tron_transaction(
     }
 
 
-async def _sign_and_send_tron_contract_call(
-    context: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
-    """Sign and broadcast a Tron smart-contract write (e.g. TRC-20 transfer).
-
-    Uses wallet/broadcasttransaction with the caller-supplied contract address
-    and call data, signed under the agent's Tron key.
-    """
-    from tronpy.keys import PrivateKey
-
-    private_key = _require_agent_private_key(context)
-    priv = PrivateKey.fromhex(private_key.removeprefix("0x"))
-    from_address = priv.public_key.to_base58check_address()
-    contract_address = str(args.get("contract_address") or args.get("token_address") or "")
-    data = str(args.get("data", ""))
-
-    raw_tx = await context.rpc_client.call(
-        "tron",
-        "wallet/broadcasttransaction",
-        [
-            {
-                "owner_address": from_address,
-                "contract_address": contract_address,
-                "data": data,
-                "visible": True,
-            }
-        ],
-    )
-    success = bool(raw_tx.get("result", False)) if isinstance(raw_tx, dict) else False
-    tx_hash = raw_tx.get("txid") if isinstance(raw_tx, dict) else None
-    if not success or not tx_hash:
-        raise RuntimeError(f"Tron contract broadcast failed: {raw_tx}")
+def _unsupported_write_deferred(protocol: str, chain: str) -> dict[str, Any]:
     return {
-        "chain": "tron",
-        "protocol": "tron",
-        "from": from_address,
-        "tx_hash": tx_hash,
-        "contract_address": contract_address,
-    }
-
-
-async def _sign_and_send_solana_program_call(
-    context: ToolContext, args: dict[str, Any]
-) -> dict[str, Any]:
-    """Sign and broadcast a Solana program write.
-
-    For SPL token transfers the caller should pass a pre-built instruction via
-    `instructions`; otherwise we defer with an explicit status so callers know
-    a structured instruction is required (SPL token accounts need association
-    lookup that is out of scope for the MVP write path).
-    """
-    instructions = args.get("instructions")
-    if not instructions:
-        return {
-            "chain": "solana",
-            "protocol": "solana",
-            "status": "deferred",
-            "message": (
-                "Solana program writes require a pre-built instruction set "
-                "(pass `instructions`). SPL token-account association is out of MVP scope."
-            ),
-        }
-    from solders.keypair import Keypair
-    from solders.message import MessageV0
-    from solders.transaction import VersionedTransaction
-    from solders.hash import Hash
-
-    private_key = _require_agent_private_key(context)
-    keypair = Keypair.from_seed(bytes.fromhex(private_key.removeprefix("0x")))
-    blockhash_resp = await context.rpc_client.call("solana", "getLatestBlockhash", [])
-    blockhash_str = blockhash_resp.get("value", {}).get("blockhash") if isinstance(blockhash_resp, dict) else None
-    if not blockhash_str:
-        raise RuntimeError("Failed to fetch Solana recent blockhash for signing.")
-    message = MessageV0.try_compile(keypair.pubkey(), instructions, [], Hash.from_string(blockhash_str))
-    transaction = VersionedTransaction(message, [keypair])
-    raw_tx = base64.b64encode(bytes(transaction)).decode()
-    signature = await context.rpc_client.send_raw_transaction("solana", raw_tx)
-    return {
-        "chain": "solana",
-        "protocol": "solana",
-        "from": str(keypair.pubkey()),
-        "tx_hash": signature,
+        "chain": chain,
+        "protocol": protocol,
+        "status": "deferred",
+        "message": (
+            "Live native transaction signing and broadcast are implemented for EVM, Solana, and Tron. "
+            f"{protocol.title()} writes are intentionally deferred until protocol-specific "
+            "transaction construction, signing, broadcast, and confirmation are added."
+        ),
     }
 
 
@@ -373,39 +401,26 @@ async def send_transaction(context: ToolContext, args: dict[str, Any]) -> dict[s
     amount_native = Decimal(str(args["amount"]))
     to_address = str(args["to_address"])
 
-    if protocol == "solana":
-        lamports = int(amount_native * (Decimal(10) ** 9))
-        return await _sign_and_send_solana_transaction(context, to_address, lamports, amount_native)
-    if protocol == "tron":
-        amount_sun = int(amount_native * (Decimal(10) ** 6))
-        return await _sign_and_send_tron_transaction(context, to_address, amount_sun, amount_native)
-
     if protocol == "evm":
         tx = {
             "to": to_address,
             "value": _native_to_wei(amount_native),
         }
         return await _sign_and_send_evm_transaction(context, chain, tx, amount_native)
-    return _non_evm_write_deferred(protocol, chain)
+    if protocol == "solana":
+        lamports = int(amount_native * (Decimal(10) ** 9))
+        return await _sign_and_send_solana_transaction(context, chain, to_address, lamports, amount_native)
+    if protocol == "tron":
+        amount_sun = int(amount_native * (Decimal(10) ** 6))
+        return await _sign_and_send_tron_transaction(context, chain, to_address, amount_sun, amount_native)
+    return _unsupported_write_deferred(protocol, chain)
 
 
 async def send_erc20(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     chain = validate_chain_allowed(context, str(args["chain"]))
     protocol = context.rpc_client.get_protocol(chain)
-    if protocol == "tron":
-        # TRC-20 transfer: route through the Tron contract write path using the
-        # standard transfer(address,uint256) selector.
-        transfer_args = {
-            **args,
-            "contract_address": args.get("token_address") or args.get("contract_address"),
-            "abi_function": "transfer",
-            "data": _encode_erc20_transfer(str(args["to_address"]), int(args["amount"]) if str(args["amount"]).isdigit() else 0),
-        }
-        return await _sign_and_send_tron_contract_call(context, transfer_args)
-    if protocol == "solana":
-        return await _sign_and_send_solana_program_call(context, args)
     if protocol != "evm":
-        return _non_evm_write_deferred(protocol, chain)
+        return _unsupported_write_deferred(protocol, chain)
 
     decimals = int(args.get("token_decimals") or 18)
     amount_units = _native_to_wei(str(args["amount"]), decimals)
@@ -421,23 +436,22 @@ async def send_erc20(context: ToolContext, args: dict[str, Any]) -> dict[str, An
 async def contract_call(context: ToolContext, args: dict[str, Any]) -> Any:
     chain = validate_chain_allowed(context, str(args["chain"]))
     protocol = context.rpc_client.get_protocol(chain)
-    if protocol == "evm" and not args.get("value"):
+    if protocol != "evm":
+        return _unsupported_write_deferred(protocol, chain)
+
+    value_native = Decimal(str(args.get("value") or 0))
+    data = _contract_call_data(args)
+    write = bool(args.get("write")) or str(args.get("mode") or "").lower() == "write" or value_native > 0
+    if not write:
         return await context.rpc_client.call(
             chain,
             "eth_call",
-            [{"to": str(args["contract_address"]), "data": str(args.get("data", "0x"))}, "latest"],
+            [{"to": str(args["contract_address"]), "data": data}, "latest"],
         )
-    if protocol == "tron":
-        return await _sign_and_send_tron_contract_call(context, args)
-    if protocol == "solana":
-        return await _sign_and_send_solana_program_call(context, args)
-    if protocol != "evm":
-        return _non_evm_write_deferred(protocol, chain)
-    value_native = Decimal(str(args.get("value") or 0))
     tx = {
         "to": str(args["contract_address"]),
         "value": _native_to_wei(value_native),
-        "data": str(args.get("data", "0x")),
+        "data": data,
     }
     return await _sign_and_send_evm_transaction(context, chain, tx, value_native)
 
@@ -482,7 +496,7 @@ TOOLS.extend(
         register_tool(
             function_schema(
                 "send_transaction",
-                "Send a native token transaction. EVM, Solana, and Tron sign and broadcast with the agent wallet; other protocols return a deferred signer status.",
+                "Send a native token transaction with the agent wallet. Supports EVM, Solana, and Tron; other protocols return a deferred signer status.",
                 {"chain": {"type": "string"}, "to_address": {"type": "string"}, "amount": {"type": "string"}},
                 ["chain", "to_address", "amount"],
             ),
@@ -492,7 +506,7 @@ TOOLS.extend(
         register_tool(
             function_schema(
                 "send_erc20",
-                "Send an ERC-20/TRC-20 token transaction on EVM and Tron chains with the agent wallet; SPL protocols require a pre-built instruction.",
+                "Send an ERC-20 token transaction on EVM chains with the agent wallet; non-EVM token writes return a deferred signer status.",
                 {
                 "chain": {"type": "string"},
                 "token_address": {"type": "string"},
@@ -508,7 +522,7 @@ TOOLS.extend(
         register_tool(
             function_schema(
                 "contract_call",
-                "Call a contract/program. EVM read calls execute via eth_call; EVM, Tron, and Solana writes are signed with the agent wallet; other protocols return deferred signer status.",
+                "Call a contract. EVM read calls execute via eth_call and EVM writes are signed with the agent wallet; non-EVM contract writes return deferred signer status.",
                 {
                     "chain": {"type": "string"},
                     "contract_address": {"type": "string"},
@@ -516,6 +530,8 @@ TOOLS.extend(
                     "args": {"type": "array", "items": {}},
                     "value": {"type": "string"},
                     "data": {"type": "string"},
+                    "write": {"type": "boolean"},
+                    "mode": {"type": "string", "enum": ["read", "write"]},
                 },
                 ["chain", "contract_address", "abi_function", "args"],
             ),

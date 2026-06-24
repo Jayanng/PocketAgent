@@ -84,6 +84,23 @@ class Prompt12DashboardTestCase(unittest.TestCase):
                 )
             conn.commit()
 
+    def create_agent(self, name: str = "Analytics Agent") -> dict:
+        response = self.client.post(
+            "/api/agents",
+            json={
+                "name": name,
+                "description": "Prompt 12 analytics auth test agent",
+                "chains": ["ethereum"],
+                "capabilities": ["read", "analytics"],
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        return response.json()
+
+    @staticmethod
+    def auth_headers(agent: dict) -> dict[str, str]:
+        return {"X-Agent-Access-Token": agent["access_token"]}
+
     # ─── RelayTrackerService.get_success_rate (the refactor) ────────────────
 
     def test_success_rate_service_computes_2xx_share_in_one_query(self) -> None:
@@ -154,6 +171,28 @@ class Prompt12DashboardTestCase(unittest.TestCase):
         resp = self.client.get("/api/analytics/relay-stats?timeframe=forever")
         self.assertEqual(resp.status_code, 422)
 
+    def test_relay_stats_agent_filter_requires_access_token(self) -> None:
+        created = self.create_agent()
+        self.seed_relay_logs([
+            {"agent_id": created["id"], "chain": "ethereum", "response_status": 200},
+        ])
+
+        missing = self.client.get(f"/api/analytics/relay-stats?agent_id={created['id']}")
+        self.assertEqual(missing.status_code, 403)
+
+        wrong = self.client.get(
+            f"/api/analytics/relay-stats?agent_id={created['id']}",
+            headers={"X-Agent-Access-Token": "wrong-token"},
+        )
+        self.assertEqual(wrong.status_code, 403)
+
+        allowed = self.client.get(
+            f"/api/analytics/relay-stats?agent_id={created['id']}",
+            headers=self.auth_headers(created),
+        )
+        self.assertEqual(allowed.status_code, 200, allowed.text)
+        self.assertEqual(allowed.json()["total_relays"], 1)
+
     # ─── GET /api/analytics/cost-tracker ────────────────────────────────────
 
     def test_cost_tracker_notional_math_and_per_chain_share(self) -> None:
@@ -176,6 +215,22 @@ class Prompt12DashboardTestCase(unittest.TestCase):
         self.assertAlmostEqual(chains["ethereum"]["share"], 2 / 3, places=4)
         self.assertAlmostEqual(chains["polygon"]["share"], 1 / 3, places=4)
         self.assertIn("Notional", body["note"])
+
+    def test_cost_tracker_agent_filter_requires_access_token(self) -> None:
+        created = self.create_agent()
+        self.seed_relay_logs([
+            {"agent_id": created["id"], "chain": "ethereum", "relay_cost_pokt": 0.00089},
+        ])
+
+        missing = self.client.get(f"/api/analytics/cost-tracker?agent_id={created['id']}")
+        self.assertEqual(missing.status_code, 403)
+
+        allowed = self.client.get(
+            f"/api/analytics/cost-tracker?agent_id={created['id']}",
+            headers=self.auth_headers(created),
+        )
+        self.assertEqual(allowed.status_code, 200, allowed.text)
+        self.assertEqual(allowed.json()["total_relays"], 1)
 
     # ─── GET /api/analytics/chain-health ────────────────────────────────────
 

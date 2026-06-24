@@ -1,4 +1,7 @@
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const AGENT_TOKEN_PREFIX = "pocketagent:agent-token:";
+const agentAccessTokens = new Map<string, string>();
+let tokensHydrated = false;
 
 // ─── Protocol grouping (shared across dashboard components) ─────────────────
 import type { ChainProtocol, ChainConfig } from "@/lib/constants";
@@ -46,8 +49,10 @@ export type Agent = {
   chains: string[];
   capabilities: string[];
   wallet_address?: string | null;
+  wallet_addresses?: Record<string, string>;
   spending_cap?: number;
   total_spent?: number;
+  total_spent_by_chain?: Record<string, number>;
   is_active: boolean;
   created_at?: string | null;
   updated_at?: string | null;
@@ -65,16 +70,21 @@ export type AgentCreateResponse = {
   id: string;
   name: string;
   wallet_address: string;
+  wallet_addresses: Record<string, string>;
+  access_token: string;
 };
 
 export type AgentFundResponse = {
   id: string;
   wallet_address: string;
+  chain: string;
+  protocol: string;
 };
 
 export type AgentBalancesResponse = {
   agent_id: string;
   wallet_address: string;
+  wallet_addresses?: Record<string, string>;
   balances: Record<string, {
     formatted?: string;
     amount?: string | number;
@@ -202,12 +212,61 @@ export type Portfolio = {
   holdings: PortfolioHolding[];
 };
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+function tokenStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const probe = `${AGENT_TOKEN_PREFIX}probe`;
+    window.sessionStorage.setItem(probe, "1");
+    window.sessionStorage.removeItem(probe);
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function hydrateAgentAccessTokens(): void {
+  if (tokensHydrated) return;
+  const storage = tokenStorage();
+  if (!storage) return;
+  tokensHydrated = true;
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (!key?.startsWith(AGENT_TOKEN_PREFIX)) continue;
+    const agentId = key.slice(AGENT_TOKEN_PREFIX.length);
+    const token = storage.getItem(key);
+    if (agentId && token) {
+      agentAccessTokens.set(agentId, token);
+    }
+  }
+}
+
+export function getAgentAccessToken(agentId: string): string | null {
+  hydrateAgentAccessTokens();
+  return agentAccessTokens.get(agentId) ?? null;
+}
+
+export function rememberAgentAccessToken(agentId: string, token: string): void {
+  hydrateAgentAccessTokens();
+  const trimmed = token.trim();
+  if (!trimmed) return;
+  agentAccessTokens.set(agentId, trimmed);
+  tokenStorage()?.setItem(`${AGENT_TOKEN_PREFIX}${agentId}`, trimmed);
+}
+
+export function forgetAgentAccessToken(agentId: string): void {
+  hydrateAgentAccessTokens();
+  agentAccessTokens.delete(agentId);
+  tokenStorage()?.removeItem(`${AGENT_TOKEN_PREFIX}${agentId}`);
+}
+
+async function request<T>(path: string, init?: RequestInit & { accessToken?: string | null }): Promise<T> {
+  const { accessToken, ...fetchInit } = init ?? {};
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
+    ...fetchInit,
     headers: {
       "Content-Type": "application/json",
-      ...init?.headers,
+      ...(accessToken ? { "X-Agent-Access-Token": accessToken } : {}),
+      ...fetchInit.headers,
     },
   });
 
@@ -244,10 +303,12 @@ export const api = {
       message: string,
       agentId: string,
       conversationId: string | null,
-      connectedWalletAddress: string | null
+      connectedWalletAddress: string | null,
+      accessToken = getAgentAccessToken(agentId)
     ) {
       return request<ChatResponse>("/api/chat", {
         method: "POST",
+        accessToken,
         body: JSON.stringify({
           message,
           agent_id: agentId,
@@ -256,15 +317,16 @@ export const api = {
         }),
       });
     },
-    getConversations(agentId: string) {
-      return request<Conversation[]>(`/api/conversations?agent_id=${encodeURIComponent(agentId)}`);
+    getConversations(agentId: string, accessToken = getAgentAccessToken(agentId)) {
+      return request<Conversation[]>(`/api/conversations?agent_id=${encodeURIComponent(agentId)}`, { accessToken });
     },
-    getMessages(conversationId: string) {
-      return request<ChatMessage[]>(`/api/conversations/${encodeURIComponent(conversationId)}/messages`);
+    getMessages(conversationId: string, accessToken?: string | null) {
+      return request<ChatMessage[]>(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, { accessToken });
     },
-    deleteConversation(conversationId: string) {
+    deleteConversation(conversationId: string, accessToken?: string | null) {
       return request<void>(`/api/conversations/${encodeURIComponent(conversationId)}`, {
         method: "DELETE",
+        accessToken,
       });
     },
   },
@@ -278,20 +340,26 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
-    get(id: string) {
-      return request<Agent>(`/api/agents/${encodeURIComponent(id)}`);
+    get(id: string, accessToken = getAgentAccessToken(id)) {
+      return request<Agent>(`/api/agents/${encodeURIComponent(id)}`, {
+        accessToken,
+      });
     },
     fund(id: string) {
       return request<AgentFundResponse>(`/api/agents/${encodeURIComponent(id)}/fund`, {
         method: "POST",
+        accessToken: getAgentAccessToken(id),
       });
     },
     balances(id: string) {
-      return request<AgentBalancesResponse>(`/api/agents/${encodeURIComponent(id)}/balances`);
+      return request<AgentBalancesResponse>(`/api/agents/${encodeURIComponent(id)}/balances`, {
+        accessToken: getAgentAccessToken(id),
+      });
     },
     delete(id: string) {
       return request<void>(`/api/agents/${encodeURIComponent(id)}`, {
         method: "DELETE",
+        accessToken: getAgentAccessToken(id),
       });
     },
   },
@@ -299,7 +367,9 @@ export const api = {
     relayStats(agentId: string | null, timeframe: Timeframe = "all") {
       const params = new URLSearchParams({ timeframe });
       if (agentId) params.set("agent_id", agentId);
-      return request<RelayStats>(`/api/analytics/relay-stats?${params}`);
+      return request<RelayStats>(`/api/analytics/relay-stats?${params}`, {
+        accessToken: agentId ? getAgentAccessToken(agentId) : null,
+      });
     },
     chainHealth(live = false) {
       return request<ChainHealth>(`/api/analytics/chain-health${live ? "?live=true" : ""}`);
@@ -307,7 +377,9 @@ export const api = {
     costTracker(agentId: string | null, timeframe: Timeframe = "all") {
       const params = new URLSearchParams({ timeframe });
       if (agentId) params.set("agent_id", agentId);
-      return request<CostTracker>(`/api/analytics/cost-tracker?${params}`);
+      return request<CostTracker>(`/api/analytics/cost-tracker?${params}`, {
+        accessToken: agentId ? getAgentAccessToken(agentId) : null,
+      });
     },
     portfolio(address: string, chains?: string[]) {
       const params = new URLSearchParams({ address });

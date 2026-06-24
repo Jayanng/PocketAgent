@@ -5,10 +5,24 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      live_mcp:
+        description: "Run live MCP smoke tests against Pocket RPC endpoints"
+        required: false
+        default: false
+        type: boolean
+      live_rpc:
+        description: "Run live Pocket RPC chain-router tests"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   test-backend:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     defaults:
       run:
         working-directory: backend
@@ -34,7 +48,11 @@ jobs:
         run: python -m pytest tests/test_prompt13_mcp_server.py -v
 
   test-mcp-live:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_mcp }}
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      LIVE_MCP_TESTS: "1"
     defaults:
       run:
         working-directory: backend
@@ -55,6 +73,33 @@ jobs:
 
       - name: Run live MCP server smoke test
         run: python -m pytest tests/test_mcp_server_live.py -v
+
+  test-rpc-live:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_rpc }}
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      LIVE_RPC_TESTS: "1"
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run live Pocket RPC tests
+        run: python -m pytest tests/test_live_rpc.py -v
 
   test-frontend:
     runs-on: ubuntu-latest

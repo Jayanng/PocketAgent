@@ -21,6 +21,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
+import { ProtocolFamiliesBanner } from "@/components/brand/protocol-families-banner";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { ConnectButton } from "@/components/wallet/connect-button";
 import { useLandingTheme } from "@/hooks/use-landing-theme";
@@ -183,9 +184,9 @@ function ChainNetwork({ theme }: { theme: "light" | "dark" }) {
               y={chain.y + 3.2}
               textAnchor="middle"
               fill={chain.color}
-              fillOpacity={0.5}
-              fontSize={2.8}
-              fontWeight={600}
+              fillOpacity={theme === "light" ? 0.9 : 0.75}
+              fontSize={3.2}
+              fontWeight={700}
               fontFamily="var(--font-inter), system-ui, sans-serif"
               letterSpacing="0.08em"
             >
@@ -314,7 +315,7 @@ function Nav() {
 
 function GradientBackground() {
   return (
-    <div className="pointer-events-none fixed inset-0 overflow-hidden">
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
       <div className="absolute inset-0 grid-pattern opacity-40" />
       <div className="landing-orb-blue absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full blur-[120px]" />
       <div className="landing-orb-accent absolute -right-40 bottom-0 h-[400px] w-[400px] rounded-full blur-[100px]" />
@@ -386,11 +387,13 @@ export default function Home() {
 
   return (
     <div
-      className="landing-page relative min-h-[100dvh]"
+      className="landing-page relative isolate min-h-[100dvh] overflow-x-clip"
       data-landing-theme={theme}
       style={LANDING_THEME_STYLES[theme]}
     >
-      <GradientBackground />
+      <div className="pointer-events-none absolute inset-0 -z-10">
+        <GradientBackground />
+      </div>
       <Nav />
 
       <section className="relative z-10 mx-auto flex min-h-[100dvh] max-w-7xl flex-col px-4 pb-8 pt-36 sm:px-6 sm:pt-32 md:flex-row md:items-center md:px-6 md:pb-0 md:pt-0">
@@ -458,12 +461,12 @@ export default function Home() {
         </motion.div>
 
         <motion.div
-          className="mt-8 hidden flex-1 sm:block md:mt-0"
+          className="mt-8 flex flex-1 justify-center md:mt-0 md:justify-end"
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 1.2, delay: 0.3, ease: EASE_OUT }}
         >
-          <div className="relative mx-auto aspect-square max-w-md md:ml-auto md:max-w-lg">
+          <div className="relative mx-auto aspect-square w-full max-w-[280px] sm:max-w-md md:ml-auto md:max-w-lg">
             <div className="glow-blue absolute inset-0 rounded-full" />
             <ChainNetwork theme={theme} />
           </div>
@@ -477,7 +480,7 @@ export default function Home() {
         <motion.div
           className="mx-auto mb-16 max-w-2xl text-center"
           initial={{ opacity: 0, y: 20 }}
-          animate={featuresInView ? { opacity: 1, y: 0 } : {}}
+          animate={featuresInView ? { opacity: 1, y: 0 } : { opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: EASE_OUT }}
         >
           <h2 className="landing-section-title text-3xl font-bold tracking-tight md:text-4xl">
@@ -504,7 +507,7 @@ export default function Home() {
                   isLarge ? "md:col-span-2" : "md:col-span-1",
                 )}
                 initial={reduce ? false : { opacity: 0, y: 30 }}
-                animate={featuresInView ? { opacity: 1, y: 0 } : {}}
+                animate={featuresInView ? { opacity: 1, y: 0 } : { opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay, ease: EASE_OUT }}
                 whileHover={
                   reduce ? undefined : { y: -2, transition: { duration: 0.2 } }
@@ -532,17 +535,21 @@ export default function Home() {
                     {feature.description}
                   </p>
 
-                  {isLarge && (
-                    <div className="landing-card-image relative mt-6 h-32 overflow-hidden rounded-xl md:h-40">
-                      <Image
-                        src={`https://picsum.photos/seed/${feature.imageSeed}/600/300`}
-                        alt=""
-                        fill
-                        className="object-cover opacity-50 transition-opacity group-hover:opacity-70"
-                        sizes="(max-width: 768px) 100vw, 66vw"
-                      />
-                      <div className="landing-card-image-overlay absolute inset-0" />
-                    </div>
+                  {isLarge && feature.title === "52-Chain Network" ? (
+                    <ProtocolFamiliesBanner theme={theme} />
+                  ) : (
+                    isLarge && (
+                      <div className="landing-card-image relative mt-6 h-32 overflow-hidden rounded-xl md:h-40">
+                        <Image
+                          src={`https://picsum.photos/seed/${feature.imageSeed}/600/300`}
+                          alt=""
+                          fill
+                          className="object-cover opacity-50 transition-opacity group-hover:opacity-70"
+                          sizes="(max-width: 768px) 100vw, 66vw"
+                        />
+                        <div className="landing-card-image-overlay absolute inset-0" />
+                      </div>
+                    )
                   )}
                 </div>
               </motion.div>
@@ -567,7 +574,7 @@ export default function Home() {
           <motion.div
             className="landing-stats-footer mt-10 border-t pt-6 text-center"
             initial={{ opacity: 0 }}
-            animate={statsInView ? { opacity: 1 } : {}}
+            animate={statsInView ? { opacity: 1 } : { opacity: 1 }}
             transition={{ delay: 0.6, duration: 0.6 }}
           >
             <p className="text-xs">

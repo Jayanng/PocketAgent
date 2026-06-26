@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Solana">
+  <defs>
+    <linearGradient id="sol" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00FFA3"/>
+      <stop offset="100%" stop-color="#DC1FFF"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="14" width="48" height="10" rx="3" fill="url(#sol)"/>
+  <rect x="8" y="27" width="48" height="10" rx="3" fill="url(#sol)" opacity="0.85"/>
+  <rect x="8" y="40" width="48" height="10" rx="3" fill="url(#sol)" opacity="0.7"/>
+</svg>

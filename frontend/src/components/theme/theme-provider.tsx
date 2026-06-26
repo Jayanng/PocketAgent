@@ -42,15 +42,12 @@ export function applyThemeToDocument(theme: AppTheme) {
   root.classList.add(theme === "light" ? "theme-light" : "theme-dark");
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<AppTheme>("light");
+function getInitialTheme(): AppTheme {
+  return readStoredTheme() ?? "light";
+}
 
-  useLayoutEffect(() => {
-    const stored = readStoredTheme();
-    const initial = stored ?? "light";
-    setThemeState(initial);
-    applyThemeToDocument(initial);
-  }, []);
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setThemeState] = useState<AppTheme>(getInitialTheme);
 
   useLayoutEffect(() => {
     applyThemeToDocument(theme);

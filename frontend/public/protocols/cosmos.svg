@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Cosmos">
+  <circle cx="32" cy="32" r="31" fill="#2E3148"/>
+  <circle cx="32" cy="32" r="10" fill="none" stroke="#6F7390" stroke-width="3"/>
+  <ellipse cx="32" cy="32" rx="22" ry="8" fill="none" stroke="#6F7390" stroke-width="2.5" transform="rotate(60 32 32)"/>
+  <ellipse cx="32" cy="32" rx="22" ry="8" fill="none" stroke="#6F7390" stroke-width="2.5" transform="rotate(-60 32 32)"/>
+</svg>

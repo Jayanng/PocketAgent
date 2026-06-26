@@ -9,10 +9,11 @@ import {
   Gauge,
   Menu,
   MessageSquare,
-  Sparkles,
   WalletCards,
   X,
 } from "lucide-react";
+import { Logo } from "@/components/brand/logo";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { BalanceDisplay } from "@/components/wallet/balance-display";
 import { ConnectButton } from "@/components/wallet/connect-button";
 import { RpcBanner } from "@/components/ui/rpc-banner";
@@ -102,8 +103,15 @@ export function AppShell({ children }: AppShellProps) {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    document.body.style.overflow = sidebarOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [sidebarOpen]);
+
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
       {rpcDown && (
         <RpcBanner
           visible={rpcDown}
@@ -118,16 +126,12 @@ export function AppShell({ children }: AppShellProps) {
       )}
 
       {/* Global Top Header */}
-      <header className="sticky top-0 z-30 w-full border-b border-border/40 bg-card/60 backdrop-blur-xl transition-all">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 md:px-8">
-          <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent shadow-lg shadow-primary/20 group-hover:scale-105 transition-transform duration-200">
-              <Sparkles size={16} className="text-white" />
-            </div>
-            <span className="text-[15px] font-semibold tracking-tight text-foreground group-hover:text-foreground/90 transition-colors">
-              PocketAgent
-            </span>
-          </Link>
+      <header className="safe-top sticky top-0 z-30 w-full border-b border-border/40 bg-card/60 backdrop-blur-xl transition-all">
+        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-2 px-3 sm:px-4 md:h-16 md:px-8">
+          <Logo
+            size="md"
+            textClassName="hidden text-[15px] text-foreground transition-colors group-hover:text-foreground/90 sm:inline"
+          />
 
           {/* Desktop Navigation */}
           <nav className="hidden items-center gap-1.5 md:flex">
@@ -154,6 +158,7 @@ export function AppShell({ children }: AppShellProps) {
 
           {/* Desktop Right Side (Wallet details & connect) */}
           <div className="hidden items-center gap-3 md:flex">
+            <ThemeToggle />
             {isConnected && (
               <button
                 type="button"
@@ -168,14 +173,16 @@ export function AppShell({ children }: AppShellProps) {
             <ConnectButton />
           </div>
 
-          {/* Mobile hamburger menu */}
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="flex md:hidden rounded-lg border border-border/60 bg-muted/10 p-2 text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-all"
-            aria-label={sidebarOpen ? "Close menu" : "Open menu"}
-          >
-            {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
-          </button>
+          <div className="flex items-center gap-2 md:hidden">
+            <ThemeToggle />
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="flex rounded-lg border border-border/60 bg-muted/10 p-2 text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-all"
+              aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+            >
+              {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -188,15 +195,14 @@ export function AppShell({ children }: AppShellProps) {
             onClick={() => setSidebarOpen(false)}
             aria-label="Close mobile navigation"
           />
-          <aside className="fixed inset-y-0 right-0 z-50 w-72 border-l border-border/50 bg-card/95 backdrop-blur-xl p-6 shadow-2xl flex flex-col justify-between md:hidden animate-toast-in">
+          <aside className="safe-top safe-bottom fixed inset-y-0 right-0 z-50 flex w-[min(100vw,20rem)] flex-col justify-between border-l border-border/50 bg-card/95 p-5 shadow-2xl backdrop-blur-xl sm:w-72 md:hidden animate-toast-in">
             <div className="space-y-6">
               <div className="flex items-center justify-between pb-4 border-b border-border/40">
-                <Link href="/" className="flex items-center gap-2" onClick={() => setSidebarOpen(false)}>
-                  <Sparkles size={18} className="text-primary" />
-                  <span className="text-sm font-semibold tracking-tight text-foreground">
-                    PocketAgent
-                  </span>
-                </Link>
+                <Logo
+                  size="sm"
+                  textClassName="text-sm text-foreground"
+                  onClick={() => setSidebarOpen(false)}
+                />
                 <button
                   onClick={() => setSidebarOpen(false)}
                   className="rounded-lg border border-border/60 p-1.5 text-muted-foreground hover:text-foreground"
@@ -244,6 +250,14 @@ export function AppShell({ children }: AppShellProps) {
             </div>
 
             <div className="space-y-4 pt-4 border-t border-border/40">
+              <div className="flex items-center justify-between rounded-lg border border-border/30 bg-muted/20 p-3">
+                <div>
+                  <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">Appearance</p>
+                  <p className="mt-1 text-xs font-semibold text-foreground">Light / Dark mode</p>
+                </div>
+                <ThemeToggle />
+              </div>
+
               <div className="rounded-lg bg-muted/20 border border-border/30 p-3">
                 <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">Network Status</p>
                 <p className="mt-1 text-xs font-semibold text-foreground flex items-center gap-1.5">
@@ -267,14 +281,41 @@ export function AppShell({ children }: AppShellProps) {
       {/* Main Page Layout Container */}
       <main
         className={cn(
-          "w-full flex-1 min-h-0",
+          "w-full flex-1 min-h-0 app-main-mobile",
           pathname.startsWith("/chat")
-            ? "h-[calc(100vh-4rem)] p-0"
-            : "mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8"
+            ? "h-[calc(100dvh-3.5rem-4.5rem)] p-0 md:h-[calc(100dvh-4rem)]"
+            : "mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-6 md:px-8 md:py-8"
         )}
       >
         {children}
       </main>
+
+      <nav
+        className="mobile-bottom-nav safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-border/40 bg-card/95 backdrop-blur-xl md:hidden"
+        aria-label="Mobile navigation"
+      >
+        <div className="mx-auto grid max-w-lg grid-cols-3 gap-1 px-2 pt-2">
+          {navItems.map((item) => {
+            const isActive = pathname.startsWith(item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-2 py-1.5 text-[10px] font-semibold transition-colors",
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                )}
+              >
+                <Icon size={18} />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
 
       {/* Balances Details Modal/Dialog */}
       <Dialog open={balancesOpen} onOpenChange={setBalancesOpen}>

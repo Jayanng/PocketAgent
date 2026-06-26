@@ -1,0 +1,1 @@
+export { useTheme as useLandingTheme, type AppTheme as LandingTheme } from "@/components/theme/theme-provider";

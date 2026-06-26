@@ -41,8 +41,8 @@ export function ChatInput({ disabled = false, onSend }: ChatInputProps) {
           rows={1}
           value={value}
           disabled={disabled}
-          placeholder="Ask about any blockchain... (e.g., 'What's the gas price on Ethereum?')"
-          className="max-h-[120px] min-h-[2.5rem] flex-1 resize-none bg-transparent px-3 py-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-50 text-foreground"
+          placeholder="Ask about any blockchain..."
+          className="max-h-[120px] min-h-[2.75rem] flex-1 resize-none bg-transparent px-2 py-2.5 text-base leading-relaxed outline-none placeholder:text-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-50 text-foreground sm:px-3 sm:text-sm"
           onChange={(event) => {
             setValue(event.target.value);
             requestAnimationFrame(resize);
@@ -59,15 +59,15 @@ export function ChatInput({ disabled = false, onSend }: ChatInputProps) {
           size="icon"
           disabled={disabled || !value.trim()}
           onClick={submit}
-          className="h-9 w-9 shrink-0 rounded-xl bg-primary hover:bg-primary/95 text-primary-foreground transition-all hover:scale-105 active:scale-95 disabled:scale-100 disabled:pointer-events-none disabled:opacity-40 shadow-md shadow-primary/10 cursor-pointer"
+          className="h-11 w-11 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/10 transition-all hover:scale-105 hover:bg-primary/95 active:scale-95 disabled:pointer-events-none disabled:scale-100 disabled:opacity-40 sm:h-9 sm:w-9"
           aria-label="Send message"
           title="Send message"
         >
           <SendHorizontal size={14} />
         </Button>
       </div>
-      <div className="flex justify-between items-center px-2">
-        <span className="font-mono text-[9px] text-muted-foreground/35 tracking-wider">
+      <div className="hidden items-center justify-between px-2 sm:flex">
+        <span className="font-mono text-[9px] tracking-wider text-muted-foreground/35">
           Enter to send · Shift+Enter for newline
         </span>
       </div>

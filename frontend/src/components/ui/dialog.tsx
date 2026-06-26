@@ -16,7 +16,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4" role="dialog" aria-modal="true">
+    <div className="safe-top safe-bottom fixed inset-0 z-50 flex items-end justify-center bg-black/35 p-3 sm:items-center sm:p-4" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close dialog"
@@ -31,7 +31,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
 export function DialogContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("relative max-h-[90vh] w-full overflow-y-auto rounded-lg border border-border bg-card shadow-xl", className)}
+      className={cn("relative max-h-[85dvh] w-full overflow-y-auto rounded-t-2xl border border-border bg-card shadow-xl sm:max-h-[90vh] sm:rounded-lg", className)}
       {...props}
     />
   );

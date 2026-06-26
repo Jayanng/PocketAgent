@@ -3,6 +3,8 @@
 import { useRef, useMemo, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAccount } from "wagmi";
 import {
   motion,
   useInView,
@@ -17,21 +19,14 @@ import {
   ShieldCheck,
   Globe,
   ArrowRight,
-  Sparkles,
 } from "lucide-react";
+import { Logo } from "@/components/brand/logo";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { ConnectButton } from "@/components/wallet/connect-button";
+import { useLandingTheme } from "@/hooks/use-landing-theme";
+import { cn } from "@/lib/utils";
 
-/* ── Design Read ──────────────────────────────────────────────────────
- * B2B web3/developer landing for multi-chain AI agent platform.
- * Audience: technical blockchain developers, crypto-native users.
- * Language: dark-tech / premium crypto - Phantom Wallet, Jito Labs tier.
- * Dials: VARIANCE 7 | MOTION 6 | DENSITY 4
- */
-
-/* ── Motion tokens (const assertion for type safety) ─────────────────── */
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
-
-/* ── Constants ──────────────────────────────────────────────────────── */
 
 const CHAINS = [
   { ticker: "ETH", color: "#627EEA", x: 50, y: 15 },
@@ -95,15 +90,34 @@ const FEATURES = [
   },
 ];
 
-/* ── Sub-Components ─────────────────────────────────────────────────── */
+const CHAIN_LOGOS = [
+  { slug: "ethereum", name: "Ethereum" },
+  { slug: "solana", name: "Solana" },
+  { slug: "polygon", name: "Polygon" },
+  { slug: "cosmos", name: "Cosmos" },
+  { slug: "sui", name: "Sui" },
+  { slug: "near", name: "NEAR" },
+  { slug: "tron", name: "Tron" },
+  { slug: "bitcoin", name: "Bitcoin" },
+];
 
-function ChainNetwork() {
+function ChainNetwork({ theme }: { theme: "light" | "dark" }) {
   const reduce = useReducedMotion();
 
   return (
     <div className="relative flex h-full w-full items-center justify-center">
-      <div className="absolute h-80 w-80 rounded-full bg-blue-500/10 blur-[100px]" />
-      <div className="absolute h-60 w-60 translate-x-32 translate-y-16 rounded-full bg-orange-500/8 blur-[80px]" />
+      <div
+        className={cn(
+          "absolute h-80 w-80 rounded-full blur-[100px]",
+          theme === "light" ? "bg-blue-500/8" : "bg-blue-500/10",
+        )}
+      />
+      <div
+        className={cn(
+          "absolute h-60 w-60 translate-x-32 translate-y-16 rounded-full blur-[80px]",
+          theme === "light" ? "bg-amber-400/10" : "bg-orange-500/8",
+        )}
+      />
 
       <svg
         viewBox="0 0 100 100"
@@ -125,11 +139,7 @@ function ChainNetwork() {
               strokeOpacity={0.25}
               initial={reduce ? false : { pathLength: 0, opacity: 0 }}
               animate={{ pathLength: 1, opacity: 1 }}
-              transition={{
-                duration: 2,
-                delay: idx * 0.08,
-                ease: EASE_OUT,
-              }}
+              transition={{ duration: 2, delay: idx * 0.08, ease: EASE_OUT }}
             />
           );
         })}
@@ -213,7 +223,7 @@ function CountUp({
 
   return (
     <div ref={ref} className="text-center">
-      <p className="text-3xl font-bold tracking-tight text-white md:text-4xl">
+      <p className="landing-stat-value text-3xl font-bold tracking-tight md:text-4xl">
         {displayValue ?? (
           <>
             <motion.span>{rounded}</motion.span>
@@ -230,7 +240,7 @@ function CountUp({
           </motion.span>
         )}
       </p>
-      <p className="mt-1.5 text-xs font-medium tracking-wide text-white/40 uppercase">
+      <p className="landing-stat-label mt-1.5 text-xs font-semibold uppercase tracking-wide">
         {label}
       </p>
     </div>
@@ -238,49 +248,64 @@ function CountUp({
 }
 
 function Nav() {
+  const navLinks = (
+    <>
+      <Link href="/chat" className="landing-nav-link text-[13px] font-medium">
+        Chat
+      </Link>
+      <Link href="/dashboard" className="landing-nav-link text-[13px] font-medium">
+        Dashboard
+      </Link>
+      <Link href="/agents" className="landing-nav-link landing-nav-link-gold text-[13px] font-medium">
+        Agents
+      </Link>
+    </>
+  );
+
   return (
     <motion.header
-      className="fixed inset-x-0 top-0 z-50 border-b border-white/[0.04] bg-background/70 backdrop-blur-xl"
+      className="landing-nav fixed inset-x-0 top-0 z-50 border-b backdrop-blur-xl"
       initial={{ y: -20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.6, ease: EASE_OUT }}
     >
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg shadow-blue-500/20">
-            <Sparkles size={16} className="text-white" />
+      <div className="safe-top mx-auto max-w-7xl px-4 py-3 sm:px-6 sm:py-4">
+        <div className="flex flex-col gap-3 md:hidden">
+          <div className="flex items-center justify-between gap-2">
+            <Logo
+              size="md"
+              textClassName="landing-logo truncate text-sm"
+              accentClassName="landing-logo-accent"
+            />
+            <div className="flex shrink-0 items-center gap-2">
+              <ThemeToggle className="landing-theme-toggle" />
+              <ConnectButton tone="landing" />
+            </div>
           </div>
-          <span className="text-[15px] font-semibold tracking-tight text-white">
-            PocketAgent
-          </span>
-        </Link>
+          <nav className="flex items-center justify-center gap-1 rounded-full border border-[var(--lp-border)] bg-[var(--lp-surface)] p-1">
+            <Link href="/chat" className="landing-nav-link flex-1 rounded-full px-2 py-2 text-center text-xs font-medium">
+              Chat
+            </Link>
+            <Link href="/dashboard" className="landing-nav-link flex-1 rounded-full px-2 py-2 text-center text-xs font-medium">
+              Dashboard
+            </Link>
+            <Link href="/agents" className="landing-nav-link landing-nav-link-gold flex-1 rounded-full px-2 py-2 text-center text-xs font-medium">
+              Agents
+            </Link>
+          </nav>
+        </div>
 
-        <nav className="hidden items-center gap-6 md:flex">
-          <Link
-            href="/chat"
-            className="text-[13px] font-medium text-white/50 transition-colors hover:text-white/90"
-          >
-            Chat
-          </Link>
-          <Link
-            href="/dashboard"
-            className="text-[13px] font-medium text-white/50 transition-colors hover:text-white/90"
-          >
-            Dashboard
-          </Link>
-          <Link
-            href="/agents"
-            className="text-[13px] font-medium text-white/50 transition-colors hover:text-white/90"
-          >
-            Agents
-          </Link>
-          <div className="ml-2">
-            <ConnectButton />
+        <div className="hidden items-center justify-between md:flex">
+          <Logo
+            size="md"
+            textClassName="landing-logo text-[15px]"
+            accentClassName="landing-logo-accent"
+          />
+          <nav className="flex items-center gap-6">{navLinks}</nav>
+          <div className="flex items-center gap-2">
+            <ThemeToggle className="landing-theme-toggle" />
+            <ConnectButton tone="landing" />
           </div>
-        </nav>
-
-        <div className="md:hidden">
-          <ConnectButton />
         </div>
       </div>
     </motion.header>
@@ -291,21 +316,41 @@ function GradientBackground() {
   return (
     <div className="pointer-events-none fixed inset-0 overflow-hidden">
       <div className="absolute inset-0 grid-pattern opacity-40" />
-      <div className="absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full bg-blue-500/5 blur-[120px]" />
-      <div className="absolute -right-40 bottom-0 h-[400px] w-[400px] rounded-full bg-orange-500/4 blur-[100px]" />
-      <div className="absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-blue-400/3 blur-[80px]" />
+      <div className="landing-orb-blue absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full blur-[120px]" />
+      <div className="landing-orb-accent absolute -right-40 bottom-0 h-[400px] w-[400px] rounded-full blur-[100px]" />
+      <div className="landing-orb-blue absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full blur-[80px]" />
     </div>
   );
 }
 
-/* ── Main Page ──────────────────────────────────────────────────────── */
+const LANDING_THEME_STYLES = {
+  light: {
+    backgroundColor: "#ffffff",
+    color: "#0f172a",
+  },
+  dark: {
+    backgroundColor: "oklch(12% 0.01 255)",
+    color: "oklch(92.5% 0.005 255)",
+  },
+} as const;
 
 export default function Home() {
+  const router = useRouter();
+  const { isConnected, isConnecting, isReconnecting } = useAccount();
   const reduce = useReducedMotion();
+  const { theme } = useLandingTheme();
   const featuresRef = useRef<HTMLElement>(null);
   const featuresInView = useInView(featuresRef, { once: true, margin: "-60px" });
   const statsRef = useRef<HTMLElement>(null);
   const statsInView = useInView(statsRef, { once: true, margin: "-80px" });
+
+  const chainIconColor = theme === "light" ? "1E88E5" : "888888";
+
+  useEffect(() => {
+    if (isConnected) {
+      router.replace("/dashboard");
+    }
+  }, [isConnected, router]);
 
   const containerVariants = useMemo(
     () => ({
@@ -327,14 +372,28 @@ export default function Home() {
     [],
   );
 
-  return (
-    <div className="relative min-h-[100dvh] text-white">
-      <GradientBackground />
+  if (isConnected || isConnecting || isReconnecting) {
+    return (
+      <div
+        className="landing-page flex min-h-[100dvh] items-center justify-center"
+        data-landing-theme={theme}
+        style={LANDING_THEME_STYLES[theme]}
+      >
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#1E88E5]/20 border-t-[#1E88E5]" />
+      </div>
+    );
+  }
 
+  return (
+    <div
+      className="landing-page relative min-h-[100dvh]"
+      data-landing-theme={theme}
+      style={LANDING_THEME_STYLES[theme]}
+    >
+      <GradientBackground />
       <Nav />
 
-      {/* ── Hero ────────────────────────────────────────────────────── */}
-      <section className="relative z-10 mx-auto flex min-h-[100dvh] max-w-7xl flex-col px-6 pt-28 md:flex-row md:items-center md:pt-0">
+      <section className="relative z-10 mx-auto flex min-h-[100dvh] max-w-7xl flex-col px-4 pb-8 pt-36 sm:px-6 sm:pt-32 md:flex-row md:items-center md:px-6 md:pb-0 md:pt-0">
         <motion.div
           className="flex-1 md:pr-12 lg:pr-16"
           variants={containerVariants}
@@ -343,30 +402,40 @@ export default function Home() {
         >
           <motion.div
             variants={itemVariants}
-            className="inline-flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-3.5 py-1.5"
+            className="landing-badge inline-flex items-center gap-2 rounded-full px-3.5 py-1.5"
           >
             <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-400" />
+              <span
+                className={cn(
+                  "absolute inline-flex h-full w-full animate-ping rounded-full opacity-75",
+                  theme === "light" ? "bg-[#1E88E5]" : "bg-green-400",
+                )}
+              />
+              <span
+                className={cn(
+                  "relative inline-flex h-1.5 w-1.5 rounded-full",
+                  theme === "light" ? "bg-[#1E88E5]" : "bg-green-400",
+                )}
+              />
             </span>
-            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/50">
+            <span className="landing-badge-text text-[11px] font-semibold uppercase tracking-[0.12em]">
               Decentralized RPC
             </span>
           </motion.div>
 
           <motion.h1
             variants={itemVariants}
-            className="mt-8 text-[clamp(2.5rem,6vw,4.5rem)] font-bold leading-[0.95] tracking-tight"
+            className="landing-heading mt-8 text-[clamp(2.5rem,6vw,4.5rem)] font-bold leading-[0.95] tracking-tight"
           >
             AI Agents for the{" "}
             <span className="gradient-text">Multi-Chain</span>
             <br />
-            World
+            <span className="landing-heading-line">World</span>
           </motion.h1>
 
           <motion.p
             variants={itemVariants}
-            className="mt-6 max-w-lg text-[15px] leading-relaxed text-white/45 md:text-base"
+            className="landing-body mt-6 max-w-lg text-[15px] leading-relaxed md:text-base"
           >
             Deploy autonomous agents that read and compare 52 blockchains
             through a single decentralized interface, with guarded native
@@ -376,41 +445,34 @@ export default function Home() {
 
           <motion.div
             variants={itemVariants}
-            className="mt-10 flex flex-wrap items-center gap-4"
+            className="landing-btn-row mt-8 flex flex-wrap items-center gap-3 sm:mt-10 sm:gap-4"
           >
-            <Link
-              href="/agents"
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 transition-all hover:bg-blue-600 hover:shadow-blue-500/30 active:translate-y-0.5"
-            >
+            <Link href="/agents" className="landing-btn">
               Get Started
               <ArrowRight size={16} />
             </Link>
-            <Link
-              href="/chat"
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-white/70 transition-all hover:border-white/20 hover:bg-white/[0.06] hover:text-white active:translate-y-0.5"
-            >
+            <Link href="/chat" className="landing-btn">
               Try Demo
             </Link>
           </motion.div>
         </motion.div>
 
         <motion.div
-          className="mt-12 flex-1 md:mt-0"
+          className="mt-8 hidden flex-1 sm:block md:mt-0"
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 1.2, delay: 0.3, ease: EASE_OUT }}
         >
-          <div className="relative mx-auto aspect-square max-w-lg md:ml-auto">
+          <div className="relative mx-auto aspect-square max-w-md md:ml-auto md:max-w-lg">
             <div className="glow-blue absolute inset-0 rounded-full" />
-            <ChainNetwork />
+            <ChainNetwork theme={theme} />
           </div>
         </motion.div>
       </section>
 
-      {/* ── Features (Asymmetric Bento) ─────────────────────────────── */}
       <section
         ref={featuresRef}
-        className="relative z-10 mx-auto max-w-7xl px-6 pb-32 pt-16 md:pt-24"
+        className="relative z-10 mx-auto max-w-7xl px-4 pb-20 pt-12 sm:px-6 sm:pb-32 sm:pt-16 md:pt-24"
       >
         <motion.div
           className="mx-auto mb-16 max-w-2xl text-center"
@@ -418,10 +480,10 @@ export default function Home() {
           animate={featuresInView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6, ease: EASE_OUT }}
         >
-          <h2 className="text-3xl font-bold tracking-tight md:text-4xl">
-            Everything a multi-chain agent needs
+          <h2 className="landing-section-title text-3xl font-bold tracking-tight md:text-4xl">
+            Everything a <span className="landing-section-accent">multi-chain</span> agent needs
           </h2>
-          <p className="mt-4 text-[15px] text-white/40">
+          <p className="landing-section-desc mt-4 text-[15px]">
             Read and compare every major blockchain protocol from a single
             agent interface, with live native transfers for EVM, Solana, and
             Tron.
@@ -437,9 +499,10 @@ export default function Home() {
             return (
               <motion.div
                 key={feature.title}
-                className={`group relative overflow-hidden rounded-2xl border border-white/[0.06] bg-card transition-all hover:border-white/[0.12] ${
-                  isLarge ? "md:col-span-2" : "md:col-span-1"
-                }`}
+                className={cn(
+                  "landing-card group relative overflow-hidden rounded-2xl",
+                  isLarge ? "md:col-span-2" : "md:col-span-1",
+                )}
                 initial={reduce ? false : { opacity: 0, y: 30 }}
                 animate={featuresInView ? { opacity: 1, y: 0 } : {}}
                 transition={{ duration: 0.6, delay, ease: EASE_OUT }}
@@ -460,17 +523,17 @@ export default function Home() {
                     >
                       <Icon size={20} className="text-white" />
                     </div>
-                    <h3 className="text-[17px] font-semibold tracking-tight text-white">
+                    <h3 className="landing-card-title text-[17px] font-semibold tracking-tight">
                       {feature.title}
                     </h3>
                   </div>
 
-                  <p className="max-w-md text-sm leading-relaxed text-white/45">
+                  <p className="landing-card-desc max-w-md text-sm leading-relaxed">
                     {feature.description}
                   </p>
 
                   {isLarge && (
-                    <div className="relative mt-6 h-32 overflow-hidden rounded-xl border border-white/[0.04] bg-black/20 md:h-40">
+                    <div className="landing-card-image relative mt-6 h-32 overflow-hidden rounded-xl md:h-40">
                       <Image
                         src={`https://picsum.photos/seed/${feature.imageSeed}/600/300`}
                         alt=""
@@ -478,7 +541,7 @@ export default function Home() {
                         className="object-cover opacity-50 transition-opacity group-hover:opacity-70"
                         sizes="(max-width: 768px) 100vw, 66vw"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-card via-card/60 to-transparent" />
+                      <div className="landing-card-image-overlay absolute inset-0" />
                     </div>
                   )}
                 </div>
@@ -488,13 +551,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Stats ───────────────────────────────────────────────────── */}
-      <section
-        ref={statsRef}
-        className="relative z-10 mx-auto max-w-7xl px-6 pb-32"
-      >
-        <div className="rounded-2xl border border-white/[0.06] bg-card p-8 md:p-12">
-          <div className="grid grid-cols-2 gap-10 md:grid-cols-4 md:gap-8">
+      <section ref={statsRef} className="relative z-10 mx-auto max-w-7xl px-4 pb-20 sm:px-6 sm:pb-32">
+        <div className="landing-stats-panel rounded-2xl p-5 sm:p-8 md:p-12">
+          <div className="grid grid-cols-2 gap-6 sm:gap-10 md:grid-cols-4 md:gap-8">
             {STATS.map((stat) => (
               <CountUp
                 key={stat.label}
@@ -506,20 +565,21 @@ export default function Home() {
           </div>
 
           <motion.div
-            className="mt-10 border-t border-white/[0.06] pt-6 text-center"
+            className="landing-stats-footer mt-10 border-t pt-6 text-center"
             initial={{ opacity: 0 }}
             animate={statsInView ? { opacity: 1 } : {}}
             transition={{ delay: 0.6, duration: 0.6 }}
           >
-            <p className="text-xs text-white/30">
-              Real-time data via Pocket Network decentralized RPC. No third-party indexers required.
+            <p className="text-xs">
+              Real-time data via{" "}
+              <span className="landing-stats-footer-gold">Pocket Network</span>{" "}
+              decentralized RPC. No third-party indexers required.
             </p>
           </motion.div>
         </div>
       </section>
 
-      {/* ── Ecosystem / Logo Wall ──────────────────────────────────── */}
-      <section className="relative z-10 mx-auto max-w-7xl px-6 pb-32">
+      <section className="relative z-10 mx-auto max-w-7xl px-4 pb-20 sm:px-6 sm:pb-32">
         <motion.div
           className="text-center"
           initial={{ opacity: 0, y: 20 }}
@@ -527,33 +587,24 @@ export default function Home() {
           viewport={{ once: true, margin: "-80px" }}
           transition={{ duration: 0.6, ease: EASE_OUT }}
         >
-          <p className="mb-8 text-[11px] font-medium uppercase tracking-[0.18em] text-white/25">
+          <p className="landing-powered mb-8 text-[11px] font-semibold uppercase tracking-[0.18em]">
             Powered by Pocket Network
           </p>
 
           <div className="mx-auto flex max-w-2xl flex-wrap items-center justify-center gap-x-10 gap-y-6">
-            {[
-              { slug: "ethereum", name: "Ethereum" },
-              { slug: "solana", name: "Solana" },
-              { slug: "polygon", name: "Polygon" },
-              { slug: "cosmos", name: "Cosmos" },
-              { slug: "sui", name: "Sui" },
-              { slug: "near", name: "NEAR" },
-              { slug: "tron", name: "Tron" },
-              { slug: "bitcoin", name: "Bitcoin" },
-            ].map((chain) => (
+            {CHAIN_LOGOS.map((chain) => (
               <div
                 key={chain.slug}
-                className="flex items-center gap-2.5 opacity-30 transition-opacity hover:opacity-50"
+                className="landing-chain-item flex items-center gap-2.5 transition-opacity"
               >
                 <Image
-                  src={`https://cdn.simpleicons.org/${chain.slug}/888888`}
+                  src={`https://cdn.simpleicons.org/${chain.slug}/${chainIconColor}`}
                   alt={chain.name}
                   width={24}
                   height={24}
                   className="h-6 w-6"
                 />
-                <span className="text-sm font-medium text-white/40">
+                <span className="landing-chain-name text-sm font-medium">
                   {chain.name}
                 </span>
               </div>
@@ -562,41 +613,29 @@ export default function Home() {
         </motion.div>
       </section>
 
-      {/* ── Footer ──────────────────────────────────────────────────── */}
-      <footer className="relative z-10 border-t border-white/[0.04] px-6 py-8">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 md:flex-row">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-blue-500 to-blue-600">
-              <Sparkles size={12} className="text-white" />
-            </div>
-            <span className="text-xs font-medium text-white/30">
-              PocketAgent
-            </span>
-          </div>
+      <footer className="landing-footer safe-bottom relative z-10 border-t px-4 py-6 sm:px-6 sm:py-8">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-5 text-center md:flex-row md:text-left">
+          <Logo
+            size="xs"
+            href={null}
+            textClassName="landing-logo text-xs"
+            accentClassName="landing-logo-accent"
+          />
 
           <div className="flex items-center gap-6">
-            <Link
-              href="/chat"
-              className="text-xs text-white/25 transition-colors hover:text-white/50"
-            >
+            <Link href="/chat" className="landing-footer-link text-xs font-medium">
               Chat
             </Link>
-            <Link
-              href="/dashboard"
-              className="text-xs text-white/25 transition-colors hover:text-white/50"
-            >
+            <Link href="/dashboard" className="landing-footer-link text-xs font-medium">
               Dashboard
             </Link>
-            <Link
-              href="/agents"
-              className="text-xs text-white/25 transition-colors hover:text-white/50"
-            >
+            <Link href="/agents" className="landing-footer-link landing-footer-link-gold text-xs font-medium">
               Agents
             </Link>
           </div>
 
-          <p className="text-[11px] text-white/20">
-            Powered by Pocket Network
+          <p className="landing-footer-powered text-[11px]">
+            Powered by <span className="landing-footer-powered-gold">Pocket Network</span>
           </p>
         </div>
       </footer>

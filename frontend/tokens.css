@@ -71,3 +71,18 @@
   --gradient-orange: linear-gradient(135deg, #FF9100, #FFB74D);
   --gradient-surface: linear-gradient(180deg, oklch(14% 0.012 255) 0%, oklch(10% 0.008 255) 100%);
 }
+
+html[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #475569;
+  --border: #e2e8f0;
+  --border-subtle: rgba(226, 232, 240, 0.8);
+  --card: #f8fafc;
+  --card-foreground: #0f172a;
+  --card-hover: #f1f5f9;
+  --toast-bg: #ffffff;
+  --toast-foreground: #0f172a;
+  --gradient-surface: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+}

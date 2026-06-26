@@ -17,7 +17,7 @@ export default function DashboardPage() {
             </span>
             <span className="text-[10px] font-mono uppercase tracking-wider text-green-500 font-semibold">Active Node Listener</span>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight mt-1">Network Control Center</h1>
+          <h1 className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">Network Control Center</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Pocket RPC relay traffic, multi-chain performance diagnostics, and cost overview.
           </p>

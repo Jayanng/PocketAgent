@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, Bot, Menu, Sparkles, Zap } from "lucide-react";
+import Image from "next/image";
+import { AlertCircle, Bot, Menu, Zap } from "lucide-react";
 
 import { ChainIndicator } from "@/components/chat/chain-indicator";
 import { ChatInput } from "@/components/chat/chat-input";
@@ -81,8 +82,8 @@ export function ChatContainer() {
 
       <div className="flex flex-col flex-1 h-full min-h-0 min-w-0 bg-background">
         {/* Chat Pane Top Header */}
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-border/30 bg-card/15 px-6 backdrop-blur-md z-10">
-          <div className="flex items-center gap-3 min-w-0">
+        <header className="z-10 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border/30 bg-card/15 px-3 backdrop-blur-md sm:h-16 sm:px-6">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <Button
               variant="ghost"
               size="icon"
@@ -98,8 +99,8 @@ export function ChatContainer() {
                   {selectedAgent ? `${selectedAgent.name}` : "Workspace"}
                 </h1>
                 {selectedAgent && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2 py-0.5 text-[9px] font-semibold text-green-500 uppercase tracking-wider">
-                    <span className="h-1 w-1 rounded-full bg-green-500 animate-pulse-soft" />
+                  <span className="hidden items-center gap-1.5 rounded-full bg-green-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-green-500 sm:inline-flex">
+                    <span className="h-1 w-1 animate-pulse-soft rounded-full bg-green-500" />
                     Online
                   </span>
                 )}
@@ -111,13 +112,13 @@ export function ChatContainer() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <ChainIndicator chains={activeChains} isLoading={isLoading} />
+          <div className="hidden max-w-[42%] shrink-0 sm:block sm:max-w-none">
+            <ChainIndicator chains={activeChains} isLoading={isLoading} compact />
           </div>
         </header>
 
         {error && (
-          <div className="mx-6 mt-3 flex items-start gap-2.5 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-xs text-red-400 font-mono shadow-sm animate-slide-up z-10">
+          <div className="z-10 mx-3 mt-3 flex items-start gap-2.5 rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-3 text-xs font-mono text-red-400 shadow-sm animate-slide-up sm:mx-6 sm:px-4">
             <AlertCircle className="mt-0.5 shrink-0" size={14} />
             <span className="break-words">{error}</span>
           </div>
@@ -126,15 +127,21 @@ export function ChatContainer() {
         {/* Scrollable Chat Area */}
         <div className="flex-1 min-h-0 relative overflow-hidden">
           <ScrollArea className="h-full w-full">
-            <div className="mx-auto max-w-3xl px-6 py-8 space-y-6 w-full pb-36">
+            <div className="mx-auto w-full max-w-3xl space-y-6 px-3 py-6 pb-40 sm:px-6 sm:py-8 sm:pb-36">
               
               {/* Empty state / Welcome screen */}
               {!messages.length && !isLoading && (
                 <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-8 py-8 animate-fade-in">
                   <div className="flex flex-col items-center gap-4 text-center">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/20 bg-primary/5 shadow-md shadow-primary/5">
+                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-primary/20 bg-primary/5 shadow-md shadow-primary/5">
                       {selectedAgent ? (
-                        <Sparkles size={20} className="text-primary animate-pulse-soft" />
+                        <Image
+                          src="/logo.png"
+                          alt="PocketAgent"
+                          width={32}
+                          height={32}
+                          className="rounded-full object-cover"
+                        />
                       ) : (
                         <Bot size={20} className="text-muted-foreground" />
                       )}
@@ -206,7 +213,7 @@ export function ChatContainer() {
           </ScrollArea>
 
           {/* Floating Input Capsule */}
-          <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-background via-background/95 to-transparent pointer-events-none z-10 flex flex-col items-center">
+          <div className="safe-bottom pointer-events-none absolute bottom-0 left-0 right-0 z-10 flex flex-col items-center bg-gradient-to-t from-background via-background/95 to-transparent p-3 sm:p-6">
             <div className="w-full max-w-3xl pointer-events-auto">
               <ChatInput
                 disabled={isLoading || !selectedAgentId || isBootstrapping}

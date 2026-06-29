@@ -4,7 +4,7 @@
 
 PocketAgent is a production-ready, full-stack platform designed to create, coordinate, and orchestrate AI agents across **52 distinct blockchains** using Pocket Network's decentralized, trustless RPC infrastructure. 
 
-Agents can reason about multi-chain states, query balances, analyze gas fees, and evaluate network latency across EVM, Solana, Sui, Near, Tron, and Cosmos protocols, with built-in transaction signing guards on EVM, Solana, and Tron. Interact with your agents via a polished web dashboard, a developer-friendly REST API, or any client compatible with the Model Context Protocol (MCP).
+Agents can reason about multi-chain states, query balances, analyze gas fees, and evaluate network latency across EVM, Solana, Sui, Near, Tron, and Cosmos protocols, with built-in transaction signing guards on EVM, Solana, Tron, Cosmos, Sui, and NEAR. Interact with your agents via a polished web dashboard, a developer-friendly REST API, or any client compatible with the Model Context Protocol (MCP).
 
 ---
 
@@ -13,7 +13,7 @@ Agents can reason about multi-chain states, query balances, analyze gas fees, an
 * **Unified Protocol Interface**: Access EVM, Solana, Sui, Near, Tron, and Cosmos families under a single, standardized agent toolset.
 * **Decentralized RPC Gateway**: Zero centralized API keys required. All requests route dynamically through the public Pocket Network Shannon gateway (`https://{chain}.api.pocket.network`).
 * **MCP Compatibility**: Native support for the Model Context Protocol (MCP). Integrate agent workflows directly into developer environments such as Claude Desktop, Cursor, or Codex.
-* **Guarded Transaction Signing**: Per-agent encrypted keys (EVM, Solana, Tron) with configurable, protocol-enforced spending caps checked prior to broadcast.
+* **Guarded Transaction Signing**: Per-agent encrypted keys (EVM, Solana, Tron, Cosmos, Sui, NEAR) with configurable, protocol-enforced spending caps checked prior to broadcast.
 * **Fault-Tolerant Execution**: Resilient fallback routines handle degraded upstream RPC nodes gracefully, returning structured status payloads instead of failing agent turns.
 * **Operational Observability**: Real-time stats, relay volume, latency comparison, and cost tracking out-of-the-box.
 
@@ -123,7 +123,7 @@ Access the application at `http://localhost:3000`.
 | `OPENAI_API_KEY` | Yes | API credential for the language model provider |
 | `OPENAI_BASE_URL` | No | Target OpenAI-compatible API base (default: `https://api.openai.com/v1`) |
 | `OPENAI_MODEL` | No | Target model name (e.g. `gpt-4o`) |
-| `ENCRYPTION_KEY` | Yes | 32-byte key used to securely encrypt agent wallets |
+| `ENCRYPTION_KEY` | Yes | 32-byte key used to securely encrypt agent wallets (falls back to `JWT_SECRET` if unset — set both independently in production) |
 | `JWT_SECRET` | Yes | Signing key for authentication tokens |
 | `DATABASE_PATH` | No | SQLite database file location (default: `./data/pocketagent.db`) |
 | `CORS_ORIGINS` | No | Allowed CORS domains (comma-separated) |
@@ -158,18 +158,18 @@ PocketAgent interfaces with **52 production networks** across six major protocol
 
 ## Tool Categories
 
-PocketAgent features **49 predefined tools** exposed to the LLM agent and MCP interface:
+PocketAgent features **44 predefined tools** exposed to the LLM agent and MCP interface:
 
 1. **Read-only State**: `evm_get_balance`, `solana_get_balance`, `cosmos_get_balance`, `evm_get_block`, `list_chains`.
 2. **Comparison Engines**: Gas fee comparison, network latency check, chain recommendation models.
-3. **Transaction Execution**: `send_transaction`, `send_erc20`, `contract_call` (guarded EVM, Solana, and Tron writes).
+3. **Transaction Execution**: `send_transaction`, `send_erc20`, `contract_call` (native writes on EVM, Solana, Tron, Cosmos, Sui, and NEAR; ERC-20 and contract writes are EVM-only).
 4. **Analytics & Metrics**: Wallet analysis, Pocket Network stats, relay performance metrics.
 
 ---
 
 ## Model Context Protocol (MCP) Integration
 
-The backend serves as a standalone MCP server, enabling LLMs in external clients (such as Claude Desktop, Cursor, or Codex) to execute the 49 blockchain tools natively.
+The backend serves as a standalone MCP server, enabling LLMs in external clients (such as Claude Desktop, Cursor, or Codex) to execute the 44 blockchain tools natively.
 
 From the `backend` folder:
 ```bash
@@ -184,6 +184,20 @@ Detailed usage documentation can be found in `docs/mcp-server.md`.
 * **Graceful Failure Isolation**: Upstream RPC latency or network timeouts return standard `{"available": false}` objects instead of throwing exceptions. A single degraded node will not disrupt the remaining agent workspace loop.
 * **Intelligent Retries**: Transparent client retries for gateway rate limits (429) and network gateway timeouts (408).
 * **Guarded Writes**: Spending caps are evaluated per chain prior to broadcasting transactions, blocking excessive token outflows.
+
+---
+
+## AI Usage Disclosure
+
+This project was built with assistance from AI coding tools, including **Cursor** (Claude-based agent), **Grok**, and **OpenAI** models for implementation, testing, and documentation. Human developers reviewed and integrated all generated code.
+
+---
+
+## Known Limitations
+
+- **Radix** is not supported. Pocket Network does not expose a public Radix RPC endpoint, so Radix read/write tools were removed from the MCP tool registry.
+- **ERC-20 and contract writes** are EVM-only. Other protocol families support native transfers via `send_transaction`.
+- **Sui writes** (`send_transaction`) use Pocket Network RPC exclusively after initial wallet funding: gas estimation (`sui_dryRunTransactionBlock`), object refresh (`sui_getObject`), signing, and broadcast (`sui_executeTransactionBlock`) all go through `sui.api.pocket.network`. Coin objects are tracked locally per agent (`sui_tracked_coins`); Pocket's indexed list methods (`suix_getCoins`, `suix_getOwnedObjects`, and legacy `sui_getOwnedObjects`) are unavailable (`Index store not available` / `Method not found`). A **one-time Mysten fullnode bootstrap** (`suix_getCoins` only, when an agent has zero tracked coins) seeds the local index; subsequent sends refresh known coin IDs via Pocket `sui_getObject` and update the index from transaction effects.
 
 ---
 

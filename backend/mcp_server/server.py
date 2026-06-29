@@ -1,6 +1,6 @@
 """PocketAgent MCP Server.
 
-Exposes the 49 PocketAgent tools (37 read reimplemented from BlockchainQuery's
+Exposes the 44 PocketAgent tools (32 read reimplemented from BlockchainQuery's
 surface + 12 custom), 5 resources, and 4 prompts over MCP stdio transport, so
 any MCP client (Claude Desktop, Codex) can drive Pocket Network directly.
 
@@ -57,9 +57,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Capabilities that need an agent context. Native EVM/Solana/Tron transfer
-# executors use protocol-specific encrypted keys for signing; unsupported
-# write paths return an explicit deferred status.
+# Capabilities that need an agent context. Native transfer executors use
+# protocol-specific encrypted keys for signing.
 _TRANSACT_CAPABILITIES = {"transact"}
 
 # Shared service singletons (cheap to construct; hold an httpx pool + cache).
@@ -89,9 +88,8 @@ async def _load_agent(agent_id: str) -> dict[str, Any]:
 async def _build_context(args: dict[str, Any]) -> ToolContext:
     """Build a ToolContext for a tool call.
 
-    Transact tools require an agent context. EVM/Solana/Tron native transfer
-    tools decrypt and sign with protocol-specific wallets; unsupported write
-    tools return an explicit deferred status. Read, compare, and analytics
+    Transact tools require an agent context. Native transfer tools decrypt and
+    sign with protocol-specific wallets. Read, compare, and analytics
     tools run with a minimal default context. The agent's `chains` restriction
     still applies to transact: the chain must be enabled for the agent
     (validate_chain_allowed enforces this in the executor).
@@ -109,7 +107,7 @@ async def _build_context(args: dict[str, Any]) -> ToolContext:
 
 @server.list_tools()
 async def handle_list_tools() -> list[Tool]:
-    """Expose all 49 registered tools as MCP Tool objects."""
+    """Expose all 44 registered tools as MCP Tool objects."""
     return list_mcp_tools()
 
 
@@ -117,7 +115,7 @@ async def handle_list_tools() -> list[Tool]:
 async def handle_call_tool(name: str, arguments: dict | None) -> list[TextContent]:
     """Route an MCP tool call to the existing TOOL_REGISTRY executor.
 
-    All 49 tools are handled here — reads via the protocol dispatcher,
+    All 44 tools are handled here — reads via the protocol dispatcher,
     custom (compare/transact/analytics/pokt/wallet/simulation) via their
     registered executors. Transact tools require agent_id in arguments.
     """

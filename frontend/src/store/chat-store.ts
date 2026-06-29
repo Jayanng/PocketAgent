@@ -5,12 +5,10 @@ import { create } from "zustand";
 import {
   api,
   getAgentAccessToken,
-  rememberAgentAccessToken,
-  type Agent,
   type ChainCall,
   type ChatMessage,
-  type Conversation,
 } from "@/lib/api";
+import { useAgentStore } from "@/store/agent-store";
 
 type ClientMessage = ChatMessage & {
   id: string;
@@ -18,9 +16,6 @@ type ClientMessage = ChatMessage & {
 };
 
 type ChatState = {
-  agents: Agent[];
-  selectedAgentId: string | null;
-  conversations: Conversation[];
   currentConversationId: string | null;
   messages: ClientMessage[];
   isLoading: boolean;
@@ -30,18 +25,11 @@ type ChatState = {
   error: string | null;
   setConnectedWalletAddress: (address: string | null) => void;
   initialize: () => Promise<void>;
-  selectAgent: (agentId: string) => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
   loadConversation: (id: string) => Promise<void>;
   createNewChat: () => void;
-  createDefaultAgent: () => Promise<void>;
-};
-
-const DEFAULT_AGENT = {
-  name: "Research Agent",
-  description: "Read-only Pocket RPC assistant for balances, gas, and chain health.",
-  chains: ["ethereum", "polygon", "arbitrum", "base", "optimism", "solana"],
-  capabilities: ["read", "compare", "analytics"],
+  deleteConversation: (id: string) => Promise<void>;
+  refreshWorkspace: () => Promise<void>;
 };
 
 const clientMessage = (message: ChatMessage): ClientMessage => ({
@@ -67,9 +55,6 @@ const inferChains = (calls: ChainCall[]): string[] => {
 };
 
 export const useChatStore = create<ChatState>((set, get) => ({
-  agents: [],
-  selectedAgentId: null,
-  conversations: [],
   currentConversationId: null,
   messages: [],
   isLoading: false,
@@ -82,16 +67,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ connectedWalletAddress: address });
   },
 
+  async refreshWorkspace() {
+    await useAgentStore.getState().loadAgents();
+  },
+
   async initialize() {
     set({ isBootstrapping: true, error: null });
     try {
-      const agents = await api.agents.list();
-      const firstAgent = agents[0] ?? null;
-      set({ agents, selectedAgentId: firstAgent?.id ?? null });
-      if (firstAgent) {
-        const conversations = await api.chat.getConversations(firstAgent.id);
-        set({ conversations });
-      }
+      await useAgentStore.getState().loadAgents();
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "Unable to load chat workspace." });
     } finally {
@@ -99,33 +82,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  async selectAgent(agentId) {
-    set({
-      selectedAgentId: agentId,
-      currentConversationId: null,
-      messages: [],
-      activeChains: [],
-      error: null,
-    });
-    try {
-      const conversations = await api.chat.getConversations(agentId);
-      set({ conversations });
-    } catch (error) {
-      set({
-        conversations: [],
-        error: error instanceof Error ? error.message : "Unable to load conversations.",
-      });
-    }
-  },
-
   async sendMessage(message) {
     const trimmed = message.trim();
     const state = get();
-    if (!trimmed || state.isLoading || !state.selectedAgentId) {
+    const { selectedAgentId, selectedAgent, refreshConversations } = useAgentStore.getState();
+    if (!trimmed || state.isLoading || !selectedAgentId) {
       return;
     }
 
-    const agent = state.agents.find((candidate) => candidate.id === state.selectedAgentId);
     const userMessage: ClientMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -138,14 +102,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       messages: [...state.messages, userMessage],
       isLoading: true,
-      activeChains: agent?.chains ?? [],
+      activeChains: selectedAgent?.chains ?? [],
       error: null,
     });
 
     try {
       const response = await api.chat.sendMessage(
         trimmed,
-        state.selectedAgentId,
+        selectedAgentId,
         state.currentConversationId,
         state.connectedWalletAddress
       );
@@ -158,18 +122,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
         created_at: new Date().toISOString(),
       };
       const chains = inferChains(response.chain_calls);
-      const conversations = await api.chat.getConversations(state.selectedAgentId);
+      await refreshConversations();
       set((current) => ({
         currentConversationId: response.conversation_id,
-        conversations,
         messages: [...current.messages, assistantMessage],
         activeChains: chains.length ? chains : current.activeChains,
       }));
     } catch (error) {
-      set({
+      set((current) => ({
         error: error instanceof Error ? error.message : "Message failed.",
         activeChains: [],
-      });
+        messages: current.messages.filter((m) => m.id !== userMessage.id),
+      }));
     } finally {
       set({ isLoading: false });
     }
@@ -178,7 +142,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async loadConversation(id) {
     set({ isLoading: true, error: null, currentConversationId: id, activeChains: [] });
     try {
-      const selectedAgentId = get().selectedAgentId;
+      const selectedAgentId = useAgentStore.getState().selectedAgentId;
       const token = selectedAgentId ? getAgentAccessToken(selectedAgentId) : null;
       const messages = await api.chat.getMessages(id, token);
       const normalized = messages.map(clientMessage);
@@ -205,17 +169,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
-  async createDefaultAgent() {
-    set({ isBootstrapping: true, error: null });
+  async deleteConversation(id) {
+    const selectedAgentId = useAgentStore.getState().selectedAgentId;
+    const token = selectedAgentId ? getAgentAccessToken(selectedAgentId) : null;
+    set({ error: null });
     try {
-      const created = await api.agents.create(DEFAULT_AGENT);
-      rememberAgentAccessToken(created.id, created.access_token);
-      await get().initialize();
+      await api.chat.deleteConversation(id, token);
+      if (get().currentConversationId === id) {
+        get().createNewChat();
+      }
+      await useAgentStore.getState().refreshConversations();
     } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : "Unable to create agent.",
-        isBootstrapping: false,
-      });
+      set({ error: error instanceof Error ? error.message : "Unable to delete conversation." });
     }
   },
 }));

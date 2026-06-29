@@ -1,6 +1,6 @@
 # PocketAgent MCP Server
 
-The PocketAgent MCP (Model Context Protocol) server exposes **49 tools**, **5
+The PocketAgent MCP (Model Context Protocol) server exposes **44 tools**, **5
 resources**, and **4 prompts** over stdio, so any MCP-compatible client —
 Claude Desktop, Codex, Cursor, etc. — can drive Pocket Network's decentralized
 RPC across 52 chains directly.
@@ -11,17 +11,17 @@ RPC across 52 chains directly.
 
 BlockchainQuery (the PNF official MCP server, v2.1.2) is a Node.js MCP server
 distributed as a Claude Desktop Extension. It can't be imported into a Python
-backend, and it's **read-only**. PocketAgent reimplements its 37-tool read
+backend, and it's **read-only**. PocketAgent reimplements its 32-tool read
 surface directly against Pocket Network RPC (via the protocol dispatcher in
 `pocket_rpc.py`) and adds **12 custom tools** — compare, guarded native writes
-for EVM/Solana/Tron, analytics, POKT cost, compositional wallet analysis, and simulation — that
-BlockchainQuery does not provide. The MCP server makes all of this
-available to any AI client, not just PocketAgent's own chat UI.
+for EVM/Solana/Tron/Cosmos/Sui/NEAR, analytics, POKT cost, compositional wallet
+analysis, and simulation — that BlockchainQuery does not provide. The MCP server
+makes all of this available to any AI client, not just PocketAgent's own chat UI.
 
 ## Architecture: single-layer adapter
 
 The MCP server is a **thin adapter** over `backend/tools/TOOL_REGISTRY`. All
-49 tools are already implemented there with executors, and the chat UI calls
+44 tools are already implemented there with executors, and the chat UI calls
 them via `execute_tool(name, ToolContext, args)`. The MCP server does **not**
 re-route tools — `call_tool` delegates to the same `execute_tool`. This keeps
 the tool surface identical across chat and MCP with zero routing drift.
@@ -37,7 +37,7 @@ MCP client (Claude Desktop / Codex)
            │ execute_tool(name, context, args)
            ▼
 ┌─────────────────────────────┐
-│  backend/tools/             │  49 tools (37 read + 12 custom), already built
+│  backend/tools/             │  44 tools (32 read + 12 custom), already built
 │  TOOL_REGISTRY              │
 └──────────┬──────────────────┘
            │ reads via protocol dispatcher
@@ -91,7 +91,7 @@ Add to `claude_desktop_config.json` (macOS:
 ```
 
 After saving, restart Claude Desktop. The `pocketagent` server appears under
-**Settings → Developer**, and all 49 tools, 5 resources, and 4 prompts become
+**Settings → Developer**, and all 44 tools, 5 resources, and 4 prompts become
 available to Claude.
 
 ## Configure with Codex / Codex CLI
@@ -129,19 +129,16 @@ For a JSON-style Codex config (`settings.json`):
 > server and ask: *"Use the analyze_wallet tool on 0xd8dA… across ethereum,
 > polygon, and arbitrum, then tell me the total USD value."*
 
-## Tools (49 total)
+## Tools (44 total)
 
 All tools return JSON text. Reads are protocol-dispatched (EVM/Solana/Cosmos/
 Sui/Near/Tron) and enriched with USD values where possible. Write tools
 (`send_transaction`, `send_erc20`, `contract_call`, `simulate_transaction`)
 require an `agent_id` argument. Live native transfer signing and broadcast are
-currently enabled for EVM, Solana, and Tron. ERC-20 and contract writes are
-EVM-only. Cosmos, Sui, NEAR, non-EVM token transfers, and non-EVM contract
-writes return a structured `{"status": "deferred"}` result until
-protocol-specific transaction construction, signing, broadcast, and
-confirmation are implemented.
+enabled for EVM, Solana, Tron, Cosmos (12 app-chains), Sui, and NEAR. ERC-20
+and contract writes are EVM-only.
 
-### Read — 37 tools (mirror BlockchainQuery's surface)
+### Read — 32 tools (mirror BlockchainQuery's surface)
 
 **Generic (2)**
 - `list_chains` — list PocketAgent-supported chains, optionally filtered by protocol family
@@ -162,10 +159,6 @@ confirmation are implemented.
 
 **Near (3)** — `near_query`, `near_get_block`, `near_get_transaction`
 
-**Radix (5)** — `radix_get_network_status`, `radix_get_network_config`,
-`radix_get_balance`, `radix_get_transaction_status`, `radix_get_consensus_manager`
-*(stubbed — Radix has no Pocket public RPC endpoint in this MVP)*
-
 **Cross (3)** — `resolve_domain`, `compare_balances`, `convert_units`
 
 ### Compare — 3 tools
@@ -173,10 +166,10 @@ confirmation are implemented.
 - `recommend_chain` — ranked best chain for an operation type
 - `estimate_transaction_cost` — gas + token cost before executing
 
-### Write — 3 tools (native EVM/Solana/Tron; require `agent_id`)
-- `send_transaction` — native transfers on EVM, Solana, and Tron; other protocols return deferred
-- `send_erc20` — ERC-20 transfer on EVM; non-EVM token transfers return deferred
-- `contract_call` — EVM read/write contract call; non-EVM contract writes return deferred
+### Write — 3 tools (native multi-protocol; require `agent_id`)
+- `send_transaction` — native transfers on EVM, Solana, Tron, Cosmos, Sui, and NEAR
+- `send_erc20` — ERC-20 transfer on EVM only
+- `contract_call` — EVM read/write contract call
 
 ### Analytics — 3 tools
 - `get_relay_stats`, `get_relay_history`, `get_cost_breakdown`
@@ -188,7 +181,7 @@ confirmation are implemented.
 - `analyze_wallet` — chains 5+ read queries into one wallet report
 
 ### Simulation — 1 tool
-- `simulate_transaction` — dry-run a tx before broadcasting (EVM/Solana/Tron)
+- `simulate_transaction` — dry-run a tx before broadcasting (EVM/Solana/Tron/Cosmos/Sui/NEAR)
 
 ## Resources (5)
 

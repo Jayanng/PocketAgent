@@ -10,6 +10,7 @@ import {
   type AgentBalancesResponse,
   type AgentCreateInput,
   type AgentCreateResponse,
+  type AgentUpdateInput,
   type Conversation,
 } from "@/lib/api";
 
@@ -22,13 +23,17 @@ type AgentState = {
   isLoadingBalances: boolean;
   isLoading: boolean;
   isCreating: boolean;
+  isUpdating: boolean;
   error: string | null;
   createdWalletAddress: string | null;
+  createdWalletAddresses: Record<string, string>;
   createdAccessToken: string | null;
   loadAgents: () => Promise<void>;
   createAgent: (data: AgentCreateInput) => Promise<AgentCreateResponse>;
+  updateAgent: (id: string, data: AgentUpdateInput) => Promise<Agent>;
   deleteAgent: (id: string) => Promise<void>;
   selectAgent: (id: string | null) => Promise<void>;
+  refreshConversations: () => Promise<void>;
   fundAgent: (id: string) => Promise<string>;
   loadBalances: (id: string) => Promise<void>;
   importAgentAccessToken: (id: string, token: string) => Promise<boolean>;
@@ -44,8 +49,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   isLoadingBalances: false,
   isLoading: false,
   isCreating: false,
+  isUpdating: false,
   error: null,
   createdWalletAddress: null,
+  createdWalletAddresses: {},
   createdAccessToken: null,
 
   async loadAgents() {
@@ -65,11 +72,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   async createAgent(data) {
-    set({ isCreating: true, error: null, createdWalletAddress: null, createdAccessToken: null });
+    set({ isCreating: true, error: null, createdWalletAddress: null, createdWalletAddresses: {}, createdAccessToken: null });
     try {
       const created = await api.agents.create(data);
       rememberAgentAccessToken(created.id, created.access_token);
-      set({ createdWalletAddress: created.wallet_address, createdAccessToken: created.access_token });
+      set({
+        createdWalletAddress: created.wallet_address,
+        createdWalletAddresses: created.wallet_addresses ?? {},
+        createdAccessToken: created.access_token,
+      });
       await get().loadAgents();
       await get().selectAgent(created.id);
       return created;
@@ -79,6 +90,24 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       throw new Error(message);
     } finally {
       set({ isCreating: false });
+    }
+  },
+
+  async updateAgent(id, data) {
+    set({ isUpdating: true, error: null });
+    try {
+      const updated = await api.agents.update(id, data);
+      set((state) => ({
+        agents: state.agents.map((agent) => (agent.id === id ? { ...agent, ...updated } : agent)),
+        selectedAgent: state.selectedAgentId === id ? updated : state.selectedAgent,
+      }));
+      return updated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to update agent.";
+      set({ error: message });
+      throw new Error(message);
+    } finally {
+      set({ isUpdating: false });
     }
   },
 
@@ -117,6 +146,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         balances: {},
         error: error instanceof Error ? error.message : "Unable to load agent details.",
       });
+    }
+  },
+
+  async refreshConversations() {
+    const id = get().selectedAgentId;
+    if (!id) return;
+    try {
+      const conversations = await api.chat.getConversations(id);
+      set({ conversations });
+    } catch {
+      set({ conversations: [] });
     }
   },
 
@@ -166,6 +206,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   clearCreatedWalletAddress() {
-    set({ createdWalletAddress: null, createdAccessToken: null });
+    set({ createdWalletAddress: null, createdWalletAddresses: {}, createdAccessToken: null });
   },
 }));

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 from decimal import Decimal
 from typing import Any
@@ -273,6 +274,157 @@ async def _sign_and_send_solana_transaction(
     }
 
 
+async def _sign_and_send_cosmos_transaction(
+    context: ToolContext,
+    chain: str,
+    to_address: str,
+    amount_base: int,
+    amount_for_cap: Decimal = Decimal("0"),
+) -> dict[str, Any]:
+    private_key = _require_protocol_private_key(context, "cosmos")
+    if amount_for_cap > 0:
+        _enforce_spending_cap(context, chain, amount_for_cap)
+
+    try:
+        from ..services.cosmos_transfer import cosmos_address_from_private_key, execute_cosmos_native_transfer
+        from ..services.chain_registry import get_chain_metadata
+    except ImportError:
+        from backend.services.cosmos_transfer import cosmos_address_from_private_key, execute_cosmos_native_transfer
+        from backend.services.chain_registry import get_chain_metadata
+
+    metadata = get_chain_metadata(chain)
+    bech32_prefix = str(metadata.get("cosmos_bech32_prefix") or "cosmos")
+    sender = cosmos_address_from_private_key(private_key, bech32_prefix)
+    balance = await context.rpc_client.get_balance(chain, sender)
+    available_base = int(balance.get("wei", balance.get("raw", 0)) or 0)
+    if available_base < amount_base:
+        symbol = balance.get("symbol", metadata["symbol"])
+        raise RuntimeError(
+            f"Insufficient {symbol} balance for transfer: "
+            f"requested {amount_base} base units, available {available_base} base units."
+        )
+
+    result = await asyncio.to_thread(
+        execute_cosmos_native_transfer,
+        chain,
+        private_key,
+        to_address,
+        amount_base,
+    )
+    if amount_for_cap > 0:
+        await _record_native_spend(context, chain, amount_for_cap)
+    return {
+        "chain": chain,
+        "protocol": "cosmos",
+        "from": result["from"],
+        "tx_hash": result["tx_hash"],
+        "amount_base": result["amount_base"],
+        "denom": result["denom"],
+    }
+
+
+async def _sign_and_send_near_transaction(
+    context: ToolContext,
+    chain: str,
+    to_address: str,
+    amount_yocto: int,
+    amount_for_cap: Decimal = Decimal("0"),
+) -> dict[str, Any]:
+    private_key = _require_protocol_private_key(context, "near")
+    if amount_for_cap > 0:
+        _enforce_spending_cap(context, chain, amount_for_cap)
+
+    try:
+        from ..services.near_transfer import execute_near_native_transfer
+    except ImportError:
+        from backend.services.near_transfer import execute_near_native_transfer
+
+    account_id = (context.agent.get("wallet_addresses") or {}).get("near")
+    if not account_id:
+        raise RuntimeError("NEAR agent wallet address is not configured.")
+
+    balance = await context.rpc_client.get_balance(chain, str(account_id))
+    available_yocto = int(balance.get("wei", balance.get("raw", 0)) or 0)
+    if available_yocto < amount_yocto:
+        symbol = balance.get("symbol", "NEAR")
+        raise RuntimeError(
+            f"Insufficient {symbol} balance for transfer: "
+            f"requested {amount_yocto} yoctoNEAR, available {available_yocto} yoctoNEAR."
+        )
+
+    result = await asyncio.to_thread(
+        execute_near_native_transfer,
+        str(account_id),
+        private_key,
+        to_address,
+        amount_yocto,
+    )
+    if amount_for_cap > 0:
+        await _record_native_spend(context, chain, amount_for_cap)
+    return {
+        "chain": chain,
+        "protocol": "near",
+        "from": result["from"],
+        "tx_hash": result["tx_hash"],
+        "amount_yocto": result["amount_yocto"],
+    }
+
+
+async def _sign_and_send_sui_transaction(
+    context: ToolContext,
+    chain: str,
+    to_address: str,
+    amount_mist: int,
+    amount_for_cap: Decimal = Decimal("0"),
+) -> dict[str, Any]:
+    try:
+        from ..services.sui_transfer import execute_sui_native_transfer, sui_write_rpc_url
+    except ImportError:
+        from services.sui_transfer import execute_sui_native_transfer, sui_write_rpc_url
+
+    keystring = _require_protocol_private_key(context, "sui")
+    if amount_for_cap > 0:
+        _enforce_spending_cap(context, chain, amount_for_cap)
+
+    sender = (context.agent.get("wallet_addresses") or {}).get("sui")
+    if sender:
+        balance = await context.rpc_client.get_balance(chain, str(sender))
+        available_mist = int(balance.get("wei", balance.get("raw", 0)) or 0)
+        if available_mist < amount_mist:
+            symbol = balance.get("symbol", "SUI")
+            raise RuntimeError(
+                f"Insufficient {symbol} balance for transfer: "
+                f"requested {amount_mist} MIST, available {available_mist} MIST."
+            )
+
+    rpc_url = sui_write_rpc_url(chain)
+    tracked_coins = context.agent.get("sui_tracked_coins") or []
+    result = await asyncio.to_thread(
+        execute_sui_native_transfer,
+        rpc_url,
+        keystring,
+        to_address,
+        amount_mist,
+        tracked_coins,
+    )
+    if context.db is not None and result.get("tracked_coins") is not None:
+        await update_agent(
+            context.db,
+            str(context.agent["id"]),
+            sui_tracked_coins=result["tracked_coins"],
+        )
+        context.agent["sui_tracked_coins"] = result["tracked_coins"]
+    if amount_for_cap > 0:
+        await _record_native_spend(context, chain, amount_for_cap)
+    return {
+        "chain": chain,
+        "protocol": "sui",
+        "from": result["from"],
+        "tx_hash": result["tx_hash"],
+        "amount_mist": result["amount_mist"],
+    }
+
+
 async def _sign_and_send_tron_transaction(
     context: ToolContext,
     chain: str,
@@ -326,9 +478,9 @@ def _unsupported_write_deferred(protocol: str, chain: str) -> dict[str, Any]:
         "protocol": protocol,
         "status": "deferred",
         "message": (
-            "Live native transaction signing and broadcast are implemented for EVM, Solana, and Tron. "
-            f"{protocol.title()} writes are intentionally deferred until protocol-specific "
-            "transaction construction, signing, broadcast, and confirmation are added."
+            "Live native transaction signing and broadcast are implemented for EVM, Solana, Tron, "
+            "Cosmos, Sui, and NEAR. "
+            f"{protocol.title()} writes are not supported for this chain."
         ),
     }
 
@@ -391,10 +543,6 @@ async def near_get_transaction(context: ToolContext, args: dict[str, Any]) -> An
     return await context.rpc_client.call("near", "tx", [str(args["tx_hash"]), str(args["account_id"])])
 
 
-async def radix_unavailable(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    return {"available": False, "message": "Radix not available on Pocket public RPC."}
-
-
 async def send_transaction(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     chain = validate_chain_allowed(context, str(args["chain"]))
     protocol = context.rpc_client.get_protocol(chain)
@@ -413,6 +561,20 @@ async def send_transaction(context: ToolContext, args: dict[str, Any]) -> dict[s
     if protocol == "tron":
         amount_sun = int(amount_native * (Decimal(10) ** 6))
         return await _sign_and_send_tron_transaction(context, chain, to_address, amount_sun, amount_native)
+    if protocol == "sui":
+        amount_mist = int(amount_native * (Decimal(10) ** 9))
+        return await _sign_and_send_sui_transaction(context, chain, to_address, amount_mist, amount_native)
+    if protocol == "cosmos":
+        try:
+            from ..services.chain_registry import get_chain_metadata
+        except ImportError:
+            from backend.services.chain_registry import get_chain_metadata
+        decimals = int(get_chain_metadata(chain)["decimals"])
+        amount_base = int(amount_native * (Decimal(10) ** decimals))
+        return await _sign_and_send_cosmos_transaction(context, chain, to_address, amount_base, amount_native)
+    if protocol == "near":
+        amount_yocto = int(amount_native * (Decimal(10) ** 24))
+        return await _sign_and_send_near_transaction(context, chain, to_address, amount_yocto, amount_native)
     return _unsupported_write_deferred(protocol, chain)
 
 
@@ -468,7 +630,6 @@ READ_TOOLS = [
     ("cosmos_get_block", "Get a Cosmos block by height or latest.", {"chain": {"type": "string"}, "height": {"type": "string"}}, ["chain"]),
     ("sui_get_transaction", "Get a Sui transaction by digest.", {"digest": {"type": "string"}}, ["digest"]),
     ("near_get_transaction", "Get a NEAR transaction by hash and account ID.", {"tx_hash": {"type": "string"}, "account_id": {"type": "string"}}, ["tx_hash", "account_id"]),
-    ("radix_get_transaction_status", "Radix transaction status placeholder.", {"tx_hash": {"type": "string"}}, ["tx_hash"]),
 ]
 
 EXECUTORS = {
@@ -483,7 +644,6 @@ EXECUTORS = {
     "cosmos_get_block": cosmos_get_block,
     "sui_get_transaction": sui_get_transaction,
     "near_get_transaction": near_get_transaction,
-    "radix_get_transaction_status": radix_unavailable,
 }
 
 TOOLS = [
@@ -496,7 +656,7 @@ TOOLS.extend(
         register_tool(
             function_schema(
                 "send_transaction",
-                "Send a native token transaction with the agent wallet. Supports EVM, Solana, and Tron; other protocols return a deferred signer status.",
+                "Send a native token transaction with the agent wallet. Supports EVM, Solana, Tron, Cosmos, Sui, and NEAR.",
                 {"chain": {"type": "string"}, "to_address": {"type": "string"}, "amount": {"type": "string"}},
                 ["chain", "to_address", "amount"],
             ),
@@ -506,7 +666,7 @@ TOOLS.extend(
         register_tool(
             function_schema(
                 "send_erc20",
-                "Send an ERC-20 token transaction on EVM chains with the agent wallet; non-EVM token writes return a deferred signer status.",
+                "Send an ERC-20 token transaction on EVM chains with the agent wallet.",
                 {
                 "chain": {"type": "string"},
                 "token_address": {"type": "string"},
@@ -522,7 +682,7 @@ TOOLS.extend(
         register_tool(
             function_schema(
                 "contract_call",
-                "Call a contract. EVM read calls execute via eth_call and EVM writes are signed with the agent wallet; non-EVM contract writes return deferred signer status.",
+                "Call a contract. EVM read calls execute via eth_call and EVM writes are signed with the agent wallet.",
                 {
                     "chain": {"type": "string"},
                     "contract_address": {"type": "string"},

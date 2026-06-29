@@ -68,6 +68,8 @@
   /* Brand gradients */
   --gradient-brand: linear-gradient(135deg, #1E88E5, #FF9100);
   --gradient-blue: linear-gradient(135deg, #1E88E5, #42A5F5);
+  --gradient-blue-deep: linear-gradient(135deg, #1565C0, #1E88E5);
+  --gradient-blue-soft: linear-gradient(135deg, #42A5F5, #90CAF9);
   --gradient-orange: linear-gradient(135deg, #FF9100, #FFB74D);
   --gradient-surface: linear-gradient(180deg, oklch(14% 0.012 255) 0%, oklch(10% 0.008 255) 100%);
 }

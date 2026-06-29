@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AlertCircle, PieChart, RefreshCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useAccount } from "wagmi";
 
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ const DISTRIBUTION_COLORS = [
 ];
 
 export function PortfolioView() {
+  const { address: connectedAddress, isConnected } = useAccount();
   const [address, setAddress] = useState("");
   const [submitted, setSubmitted] = useState("");
 
@@ -53,7 +55,7 @@ export function PortfolioView() {
 
       <div className="space-y-4">
         <form
-          className="flex gap-2"
+          className="flex flex-col gap-2 sm:flex-row"
           onSubmit={(e) => {
             e.preventDefault();
             setSubmitted(address);
@@ -65,9 +67,21 @@ export function PortfolioView() {
             placeholder="0x… wallet address"
             className="font-mono text-xs focus-visible:ring-primary/20"
           />
-          <Button type="submit" disabled={!address.trim() || isLoading} className="h-10 text-xs px-4">
-            {isLoading ? "Analyzing…" : "Analyze"}
-          </Button>
+          <div className="flex gap-2">
+            {isConnected && connectedAddress && (
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-10 text-xs px-3 whitespace-nowrap"
+                onClick={() => setAddress(connectedAddress)}
+              >
+                Use wallet
+              </Button>
+            )}
+            <Button type="submit" disabled={!address.trim() || isLoading} className="h-10 text-xs px-4">
+              {isLoading ? "Analyzing…" : "Analyze"}
+            </Button>
+          </div>
         </form>
 
         {error ? (

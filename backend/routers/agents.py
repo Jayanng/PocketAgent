@@ -9,13 +9,23 @@ try:
     from ..models.agent import AgentCreateResponse, AgentDetail, AgentFundResponse, AgentSummary
     from ..services.agent_auth import generate_agent_access_token, hash_agent_access_token, verify_agent_access_token
     from ..services.pocket_rpc import PocketRPCClient
-    from ..services.wallets import create_agent_wallets, wallet_address_for_chain, wallet_maps
+    from ..services.wallets import (
+        create_agent_wallets,
+        ensure_agent_write_wallets,
+        wallet_address_for_chain,
+        wallet_maps,
+    )
 except ImportError:
     from database import create_agent, get_agent, get_db, list_agents, update_agent
     from models.agent import AgentCreateResponse, AgentDetail, AgentFundResponse, AgentSummary
     from services.agent_auth import generate_agent_access_token, hash_agent_access_token, verify_agent_access_token
     from services.pocket_rpc import PocketRPCClient
-    from services.wallets import create_agent_wallets, wallet_address_for_chain, wallet_maps
+    from services.wallets import (
+        create_agent_wallets,
+        ensure_agent_write_wallets,
+        wallet_address_for_chain,
+        wallet_maps,
+    )
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -40,18 +50,26 @@ def _agent_summary(agent: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": agent["id"],
         "name": agent["name"],
+        "description": agent.get("description"),
         "chains": agent.get("chains", []),
         "capabilities": agent.get("capabilities", []),
+        "wallet_address": agent.get("wallet_address"),
+        "spending_cap": agent.get("spending_cap", 0.1),
         "is_active": agent.get("is_active", True),
     }
 
 
 def _agent_detail(agent: dict[str, Any]) -> dict[str, Any]:
-    return {
+    detail = {
         key: value
         for key, value in agent.items()
         if key not in {"encrypted_private_key", "encrypted_wallets", "access_token_hash"}
     }
+    if detail.get("wallet_addresses") is None:
+        detail["wallet_addresses"] = {}
+    if detail.get("total_spent_by_chain") is None:
+        detail["total_spent_by_chain"] = {}
+    return detail
 
 
 def _require_agent_access(agent: dict[str, Any], access_token: str | None) -> None:
@@ -123,6 +141,7 @@ async def get_agent_detail(
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     _require_agent_access(agent, access_token)
+    agent = await ensure_agent_write_wallets(db, agent)
     return _agent_detail(agent)
 
 

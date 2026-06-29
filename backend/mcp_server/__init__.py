@@ -1,6 +1,6 @@
 """PocketAgent MCP server package.
 
-Exposes the 49 PocketAgent tools, 5 resources, and 4 prompts over MCP stdio.
+Exposes the 44 PocketAgent tools, 5 resources, and 4 prompts over MCP stdio.
 The server is a thin adapter over backend/tools/TOOL_REGISTRY — `call_tool`
 delegates to `execute_tool`, the same path the chat UI uses.
 

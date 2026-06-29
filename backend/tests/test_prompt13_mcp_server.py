@@ -28,6 +28,7 @@ from backend.mcp_server.server import (
 from backend.mcp_server.tools import list_mcp_tools, mcp_tool_names
 from backend.services.chain_registry import CHAIN_REGISTRY
 from backend.services.agent_auth import hash_agent_access_token
+from backend.tests.support import auth_enabled_settings
 
 
 # ─── Fakes ───────────────────────────────────────────────────────────────────
@@ -92,16 +93,23 @@ class FakeTracker:
 
 
 class Prompt13MCPServerTestCase(unittest.TestCase):
-    def test_list_tools_exposes_all_49_with_object_input_schema(self) -> None:
+    def setUp(self) -> None:
+        self._auth_env = auth_enabled_settings()
+        self._auth_env.__enter__()
+
+    def tearDown(self) -> None:
+        self._auth_env.__exit__(None, None, None)
+
+    def test_list_tools_exposes_all_44_with_object_input_schema(self) -> None:
         tools = list_mcp_tools()
-        self.assertEqual(len(tools), 49)
+        self.assertEqual(len(tools), 44)
         names = {t.name for t in tools}
-        # Spot-check across categories: read (evm/solana/cosmos/sui/near/radix/cross),
+        # Spot-check across categories: read (evm/solana/cosmos/sui/near/cross),
         # compare, write, analytics, pokt, compositional, simulation.
         for expected in [
             "list_chains", "get_chain_info",
             "evm_get_balance", "solana_get_balance", "cosmos_get_balance",
-            "sui_get_balance", "near_query", "radix_get_balance",
+            "sui_get_balance", "near_query",
             "resolve_domain", "compare_balances", "convert_units",
             "compare_chains", "recommend_chain", "estimate_transaction_cost",
             "send_transaction", "send_erc20", "contract_call",
@@ -136,7 +144,7 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
     def test_mcp_tool_names_is_sorted_and_complete(self) -> None:
         names = mcp_tool_names()
         self.assertEqual(names, sorted(names))
-        self.assertEqual(len(names), 49)
+        self.assertEqual(len(names), 44)
 
     # ── call_tool routing (read + custom, via the real handler) ──────────────
 
@@ -358,7 +366,7 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
     # ── Handler wrappers (smoke: they delegate to the same functions) ─────────
 
     def test_handle_list_tools_and_resources_and_prompts_delegate(self) -> None:
-        self.assertEqual(len(self._run(handle_list_tools())), 49)
+        self.assertEqual(len(self._run(handle_list_tools())), 44)
         self.assertEqual(len(self._run(handle_list_resources())), 5)
         self.assertEqual(len(self._run(handle_list_prompts())), 4)
 

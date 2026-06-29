@@ -39,6 +39,12 @@ npm-debug.log*
 # Local/generated analysis artifacts
 nul
 pocketagent-analysis.md
+tmp/
+agent-tools/
+terminals/
+confirm
+confirm-report.md
+prompt
 
 # Tooling / skill artifacts
 .hallmark/

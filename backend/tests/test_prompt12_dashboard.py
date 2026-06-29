@@ -35,6 +35,7 @@ class Prompt12DashboardTestCase(unittest.TestCase):
                 "ENCRYPTION_KEY": "test-encryption-key",
                 "JWT_SECRET": "",
                 "OPENAI_API_KEY": "",
+                "DISABLE_AGENT_AUTH": "false",
             },
             clear=False,
         )

@@ -1,6 +1,7 @@
 "use client";
 
-import { Bot, Menu, MessageSquare, Plus, RefreshCw, X } from "lucide-react";
+import Link from "next/link";
+import { Bot, MessageSquare, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { Agent, Conversation } from "@/lib/api";
@@ -17,7 +18,7 @@ type ChatSidebarProps = {
   onNewChat: () => void;
   onSelectAgent: (id: string) => void;
   onLoadConversation: (id: string) => void;
-  onCreateAgent: () => void;
+  onDeleteConversation: (id: string) => void;
   onRefresh: () => void;
 };
 
@@ -32,14 +33,18 @@ export function ChatSidebar({
   onNewChat,
   onSelectAgent,
   onLoadConversation,
-  onCreateAgent,
+  onDeleteConversation,
   onRefresh,
 }: ChatSidebarProps) {
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
 
+  const handleDelete = (conversationId: string, title: string) => {
+    if (!window.confirm(`Delete "${title || "Untitled conversation"}"?`)) return;
+    onDeleteConversation(conversationId);
+  };
+
   return (
     <>
-      {/* Mobile overlay */}
       {isOpen && (
         <button
           type="button"
@@ -57,7 +62,6 @@ export function ChatSidebar({
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        {/* Sidebar Header */}
         <div className="flex items-center justify-between gap-2 border-b border-border/30 px-5 py-4">
           <div className="flex items-center gap-2">
             <Bot size={15} className="text-primary shrink-0 animate-pulse-soft" />
@@ -85,7 +89,6 @@ export function ChatSidebar({
           </div>
         </div>
 
-        {/* Agent Selection & Configuration */}
         <div className="px-5 py-4 space-y-4 border-b border-border/30 bg-card/10">
           <div>
             <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 mb-1.5">Active Agent</p>
@@ -112,20 +115,14 @@ export function ChatSidebar({
             ) : (
               <div className="rounded-lg border border-dashed border-border/50 bg-muted/10 p-3 space-y-2">
                 <p className="text-xs text-muted-foreground/80">No agents configured yet.</p>
-                <Button
-                  size="sm"
-                  onClick={onCreateAgent}
-                  disabled={isBootstrapping}
-                  className="w-full h-8 text-xs font-semibold"
-                >
+                <Link href="/agents" className="pa-button w-full justify-center text-xs h-8">
                   <Bot size={13} />
-                  Create First Agent
-                </Button>
+                  Create Agent
+                </Link>
               </div>
             )}
           </div>
 
-          {/* Active agent chains list */}
           {selectedAgent && (
             <div className="rounded-lg bg-muted/10 border border-border/20 px-3.5 py-2.5 space-y-2">
               <div className="flex items-center justify-between">
@@ -147,7 +144,6 @@ export function ChatSidebar({
             </div>
           )}
 
-          {/* New chat button */}
           <Button
             onClick={onNewChat}
             disabled={!selectedAgentId || isBootstrapping}
@@ -158,7 +154,6 @@ export function ChatSidebar({
           </Button>
         </div>
 
-        {/* Conversation History List */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1.5">
           <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/50 px-2 mb-2">
             History · {conversations.length}
@@ -173,57 +168,59 @@ export function ChatSidebar({
             <div className="space-y-1">
               {conversations.map((conversation) => {
                 const isActive = conversation.id === currentConversationId;
+                const title = conversation.title || "Untitled conversation";
                 return (
-                  <button
+                  <div
                     key={conversation.id}
-                    type="button"
-                    onClick={() => onLoadConversation(conversation.id)}
                     className={cn(
-                      "w-full rounded-lg px-3 py-2 text-left transition-all duration-200 border cursor-pointer",
+                      "group flex items-center gap-1 rounded-lg border transition-all duration-200",
                       isActive
-                        ? "border-primary/20 bg-primary/5 text-foreground shadow-sm"
-                        : "border-transparent bg-transparent text-muted-foreground hover:bg-muted/20 hover:text-foreground"
+                        ? "border-primary/20 bg-primary/5 shadow-sm"
+                        : "border-transparent bg-transparent hover:bg-muted/20"
                     )}
                   >
-                    <div className="flex items-start gap-2.5">
-                      <MessageSquare
-                        size={12}
-                        className={cn("mt-0.5 shrink-0", isActive ? "text-primary" : "text-muted-foreground/45")}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <span className={cn("block truncate text-xs font-medium leading-normal", isActive ? "text-foreground font-semibold" : "text-muted-foreground")}>
-                          {conversation.title || "Untitled conversation"}
-                        </span>
-                        {conversation.created_at && (
-                          <span className="mt-0.5 block font-mono text-[9px] text-muted-foreground/40">
-                            {new Date(conversation.created_at).toLocaleDateString(undefined, {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                    <button
+                      type="button"
+                      onClick={() => onLoadConversation(conversation.id)}
+                      className="min-w-0 flex-1 px-3 py-2 text-left cursor-pointer"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <MessageSquare
+                          size={12}
+                          className={cn("mt-0.5 shrink-0", isActive ? "text-primary" : "text-muted-foreground/45")}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <span className={cn("block truncate text-xs font-medium leading-normal", isActive ? "text-foreground font-semibold" : "text-muted-foreground")}>
+                            {title}
                           </span>
-                        )}
+                          {conversation.created_at && (
+                            <span className="mt-0.5 block font-mono text-[9px] text-muted-foreground/40">
+                              {new Date(conversation.created_at).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </button>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(conversation.id, title)}
+                      className="mr-2 shrink-0 rounded p-1 text-muted-foreground/40 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                      title="Delete conversation"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 );
               })}
             </div>
           )}
         </div>
       </aside>
-
-      {/* Mobile toggle button (when closed) */}
-      <div className="mb-3 flex items-center justify-between lg:hidden px-4 py-2 border-b border-border/20 bg-card/20">
-        <Button variant="secondary" size="sm" onClick={onToggle} className="text-xs h-8">
-          <Menu size={14} />
-          Conversations
-        </Button>
-        <Button variant="ghost" size="icon" onClick={onRefresh} title="Refresh" className="h-8 w-8">
-          <RefreshCw size={14} />
-        </Button>
-      </div>
     </>
   );
 }

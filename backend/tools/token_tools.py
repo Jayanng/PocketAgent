@@ -89,10 +89,6 @@ async def resolve_domain(context: ToolContext, args: dict[str, Any]) -> dict[str
     return {"domain": str(args["domain"]), "status": "not_implemented", "message": "Domain resolution is deferred in MVP."}
 
 
-async def radix_unavailable(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    return {"available": False, "message": "Radix not available on Pocket public RPC."}
-
-
 READ_TOOLS = [
     ("evm_call", "Perform a raw EVM eth_call.", {"chain": {"type": "string"}, "call": {"type": "object"}, "block": {"type": "string"}}, ["chain", "call"], evm_call),
     ("evm_get_logs", "Get EVM logs by filter.", {"chain": {"type": "string"}, "filter": {"type": "object"}}, ["chain", "filter"], evm_get_logs),
@@ -107,9 +103,6 @@ READ_TOOLS = [
     ("near_query", "Execute a NEAR query RPC request.", {"query": {"type": "object"}}, ["query"], near_query),
     ("near_get_block", "Get a NEAR block.", {"finality": {"type": "string"}}, [], near_get_block),
     ("resolve_domain", "Resolve a blockchain domain name where supported.", {"domain": {"type": "string"}}, ["domain"], resolve_domain),
-    ("radix_get_network_status", "Radix network status placeholder.", {}, [], radix_unavailable),
-    ("radix_get_network_config", "Radix network config placeholder.", {}, [], radix_unavailable),
-    ("radix_get_consensus_manager", "Radix consensus manager placeholder.", {}, [], radix_unavailable),
 ]
 
 TOOLS = [

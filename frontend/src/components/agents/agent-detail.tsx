@@ -4,12 +4,14 @@ import Link from "next/link";
 import { Copy, ExternalLink, Trash2, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { AgentEditor } from "@/components/agents/agent-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ChainIcon } from "@/components/chains/chain-icon";
 import { FundAgentDialog } from "@/components/agents/fund-agent-dialog";
+import { canUseProtectedAgentRoutes, isAgentAuthDisabled } from "@/lib/agent-auth";
 import { getAgentAccessToken } from "@/lib/api";
 import type { Agent, AgentBalancesResponse, Conversation } from "@/lib/api";
 import { CHAIN_CONFIGS } from "@/lib/constants";
@@ -22,13 +24,21 @@ type AgentDetailProps = {
   isLoadingBalances: boolean;
 };
 
+const PROTOCOL_LABELS: Record<string, string> = {
+  evm: "EVM",
+  solana: "Solana",
+  tron: "Tron",
+  sui: "Sui",
+};
+
 export function AgentDetail({ agent, conversations, balances, isLoadingBalances }: AgentDetailProps) {
   const [fundingOpen, setFundingOpen] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [tokenDraft, setTokenDraft] = useState("");
   const { deleteAgent, importAgentAccessToken, isLoading, loadBalances } = useAgentStore();
+
   const hasActiveToken = agent ? Boolean(getAgentAccessToken(agent.id)) : false;
-  const canUseProtectedRoutes = Boolean(agent?.id && hasActiveToken);
+  const canUseProtectedRoutes = canUseProtectedAgentRoutes(agent?.id);
   const hasWalletData = Boolean(
     agent?.wallet_address || Object.keys(agent?.wallet_addresses ?? {}).length > 0
   );
@@ -52,14 +62,22 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
     );
   }
 
-  const walletAddress = agent.wallet_address ?? "";
+  const walletAddresses = agent.wallet_addresses ?? {};
+  const evmAddress = walletAddresses.evm ?? agent.wallet_address ?? "";
+  const protocolWallets = [
+    { key: "evm", label: PROTOCOL_LABELS.evm, address: evmAddress },
+    { key: "solana", label: PROTOCOL_LABELS.solana, address: walletAddresses.solana ?? "" },
+    { key: "tron", label: PROTOCOL_LABELS.tron, address: walletAddresses.tron ?? "" },
+    { key: "sui", label: PROTOCOL_LABELS.sui, address: walletAddresses.sui ?? "" },
+  ].filter((entry) => entry.address);
+
   const spentByChain = agent.total_spent_by_chain ?? {};
   const spentEntries = Object.entries(spentByChain).filter(([, value]) => Number(value) > 0);
 
-  const copyWallet = async () => {
-    if (!walletAddress) return;
-    await navigator.clipboard.writeText(walletAddress);
-    setCopiedAddress(walletAddress);
+  const copyWallet = async (address: string) => {
+    if (!address) return;
+    await navigator.clipboard.writeText(address);
+    setCopiedAddress(address);
   };
 
   const confirmDelete = async () => {
@@ -86,6 +104,7 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
             <ExternalLink size={15} />
             Chat with Agent
           </Link>
+          <AgentEditor agent={agent} />
           <Button
             variant="secondary"
             onClick={() => setFundingOpen(true)}
@@ -100,7 +119,7 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
         </div>
       </div>
 
-      {!hasProtectedDetails && (
+      {!canUseProtectedRoutes && !isAgentAuthDisabled() && (
         <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
           <p className="text-sm font-semibold">Access token required</p>
           <p className="mt-1 text-sm">
@@ -149,19 +168,26 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
         </div>
       </div>
 
-      <div className="rounded-md border border-border bg-background p-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Primary EVM Wallet Address</p>
-            <code className="mt-2 block break-all text-xs">
-              {walletAddress || (hasProtectedDetails ? "No wallet address available" : "Import access token to view wallet address")}
-            </code>
-          </div>
-          <Button variant="secondary" size="sm" onClick={copyWallet} disabled={!walletAddress}>
-            <Copy size={14} />
-            {copiedAddress === walletAddress ? "Copied" : "Copy"}
-          </Button>
-        </div>
+      <div className="space-y-3 rounded-md border border-border bg-background p-3">
+        <p className="text-xs font-medium uppercase text-muted-foreground">Agent Wallets</p>
+        {protocolWallets.length ? (
+          protocolWallets.map((wallet) => (
+            <div key={wallet.key} className="flex flex-col gap-2 border-t border-border/50 pt-3 first:border-t-0 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-muted-foreground">{wallet.label}</p>
+                <code className="mt-1 block break-all text-xs">{wallet.address}</code>
+              </div>
+              <Button variant="secondary" size="sm" onClick={() => void copyWallet(wallet.address)}>
+                <Copy size={14} />
+                {copiedAddress === wallet.address ? "Copied" : "Copy"}
+              </Button>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {hasProtectedDetails ? "No wallet addresses available" : "Import access token to view wallet addresses"}
+          </p>
+        )}
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -174,7 +200,7 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
               onClick={() => void loadBalances(agent.id)}
               disabled={isLoadingBalances || !hasProtectedDetails}
             >
-              {isLoadingBalances ? "Loading..." : "Load"}
+              {isLoadingBalances ? "Loading..." : "Refresh"}
             </Button>
           </div>
           <div className="mt-2 space-y-2">
@@ -211,10 +237,16 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
           <h3 className="text-sm font-semibold">Recent Conversations</h3>
           <div className="mt-2 space-y-2">
             {conversations.slice(0, 5).map((conversation) => (
-              <div key={conversation.id} className="rounded-md border border-border bg-background px-3 py-2">
+              <Link
+                key={conversation.id}
+                href={`/chat?agent=${encodeURIComponent(agent.id)}`}
+                className="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted/30"
+              >
                 <p className="truncate text-sm font-medium">{conversation.title || "Untitled conversation"}</p>
-                {conversation.created_at && <p className="mt-1 text-xs text-muted-foreground">{new Date(conversation.created_at).toLocaleString()}</p>}
-              </div>
+                {conversation.created_at && (
+                  <p className="mt-1 text-xs text-muted-foreground">{new Date(conversation.created_at).toLocaleString()}</p>
+                )}
+              </Link>
             ))}
             {!conversations.length && <p className="text-sm text-muted-foreground">No conversations yet.</p>}
           </div>

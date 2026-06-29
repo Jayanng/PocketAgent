@@ -54,6 +54,7 @@ async def init_db() -> None:
         await _ensure_column(db, "agents", "wallet_addresses", "TEXT")
         await _ensure_column(db, "agents", "access_token_hash", "TEXT")
         await _ensure_column(db, "agents", "total_spent_by_chain", "TEXT")
+        await _ensure_column(db, "agents", "sui_tracked_coins", "TEXT")
 
         # 2. conversations table
         await db.execute("""
@@ -223,7 +224,7 @@ async def update_agent(db: aiosqlite.Connection, agent_id: str, **fields) -> dic
         "name", "description", "chains", "capabilities",
         "wallet_address", "encrypted_wallets", "wallet_addresses",
         "access_token_hash", "spending_cap", "total_spent",
-        "total_spent_by_chain", "is_active",
+        "total_spent_by_chain", "sui_tracked_coins", "is_active",
     }
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
@@ -238,6 +239,8 @@ async def update_agent(db: aiosqlite.Connection, agent_id: str, **fields) -> dic
         updates["wallet_addresses"] = json.dumps(updates["wallet_addresses"])
     if "total_spent_by_chain" in updates:
         updates["total_spent_by_chain"] = json.dumps(updates["total_spent_by_chain"])
+    if "sui_tracked_coins" in updates:
+        updates["sui_tracked_coins"] = json.dumps(updates["sui_tracked_coins"])
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [agent_id]
@@ -488,15 +491,28 @@ async def delete_relay_log(db: aiosqlite.Connection, log_id: str) -> bool:
 def _row_to_agent(row) -> dict:
     d = dict(row)
     dict_fields = {"encrypted_wallets", "wallet_addresses", "total_spent_by_chain"}
-    for json_field in ("chains", "capabilities", "encrypted_wallets", "wallet_addresses", "total_spent_by_chain"):
+    for json_field in (
+        "chains",
+        "capabilities",
+        "encrypted_wallets",
+        "wallet_addresses",
+        "total_spent_by_chain",
+        "sui_tracked_coins",
+    ):
         if isinstance(d.get(json_field), str):
             try:
                 parsed = json.loads(d[json_field])
                 d[json_field] = parsed if parsed is not None else ({} if json_field in dict_fields else [])
             except (json.JSONDecodeError, TypeError):
                 d[json_field] = {} if json_field in dict_fields else []
+    if d.get("wallet_addresses") is None:
+        d["wallet_addresses"] = {}
+    if d.get("encrypted_wallets") is None:
+        d["encrypted_wallets"] = {}
     if d.get("total_spent_by_chain") is None:
         d["total_spent_by_chain"] = {}
+    if d.get("sui_tracked_coins") is None:
+        d["sui_tracked_coins"] = []
     if isinstance(d.get("is_active"), int):
         d["is_active"] = bool(d["is_active"])
     return d

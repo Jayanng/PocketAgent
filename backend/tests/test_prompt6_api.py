@@ -22,6 +22,7 @@ class Prompt6APITestCase(unittest.TestCase):
                 "JWT_SECRET": "",
                 "OPENAI_API_KEY": "",
                 "GMI_API_KEY": "",
+                "DISABLE_AGENT_AUTH": "false",
             },
             clear=False,
         )
@@ -113,7 +114,8 @@ class Prompt6APITestCase(unittest.TestCase):
         agents = self.client.get("/api/agents")
         self.assertEqual(agents.status_code, 200)
         listed_agent = next(agent for agent in agents.json() if agent["id"] == agent_id)
-        self.assertNotIn("wallet_address", listed_agent)
+        self.assertEqual(listed_agent["wallet_address"], created["wallet_address"])
+        self.assertEqual(listed_agent["description"], "Prompt 6 test agent")
         self.assertNotIn("wallet_addresses", listed_agent)
 
         detail = self.client.get(f"/api/agents/{agent_id}", headers=self.auth_headers(created))

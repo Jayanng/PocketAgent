@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 ChainProtocol = Literal["evm", "solana", "cosmos", "sui", "near", "tron"]
@@ -16,6 +16,9 @@ class ChainMetadata(TypedDict):
     explorer_url: str
     chain_id: int | str
     cosmos_denom: str | None
+    cosmos_chain_id: NotRequired[str]
+    cosmos_bech32_prefix: NotRequired[str]
+    write_url: NotRequired[str]
 
 
 def _evm(
@@ -43,10 +46,11 @@ def _cosmos(
     name: str,
     url: str,
     symbol: str,
-    chain_id: str,
+    cosmos_chain_id: str,
     denom: str,
     explorer_url: str,
     coingecko_id: str | None,
+    bech32_prefix: str,
     decimals: int = 6,
 ) -> ChainMetadata:
     return {
@@ -57,8 +61,10 @@ def _cosmos(
         "decimals": decimals,
         "coingecko_id": coingecko_id,
         "explorer_url": explorer_url,
-        "chain_id": chain_id,
+        "chain_id": cosmos_chain_id,
+        "cosmos_chain_id": cosmos_chain_id,
         "cosmos_denom": denom,
+        "cosmos_bech32_prefix": bech32_prefix,
     }
 
 
@@ -114,6 +120,7 @@ CHAIN_REGISTRY: dict[str, ChainMetadata] = {
         "name": "Sui",
         "protocol": "sui",
         "url": "https://sui.api.pocket.network",
+        "write_url": "https://sui.api.pocket.network",
         "symbol": "SUI",
         "decimals": 9,
         "coingecko_id": "sui",
@@ -143,18 +150,18 @@ CHAIN_REGISTRY: dict[str, ChainMetadata] = {
         "chain_id": "mainnet",
         "cosmos_denom": None,
     },
-    "osmosis": _cosmos("Osmosis", "https://osmosis.api.pocket.network", "OSMO", "osmosis-1", "uosmo", "https://www.mintscan.io/osmosis", "osmosis"),
-    "pocket": _cosmos("Pocket", "https://pocket.api.pocket.network", "POKT", "pocket", "upokt", "https://explorer.pokt.network", "pocket-network"),
-    "akash": _cosmos("Akash", "https://akash.api.pocket.network", "AKT", "akashnet-2", "uakt", "https://www.mintscan.io/akash", "akash-network"),
-    "juno": _cosmos("Juno", "https://juno.api.pocket.network", "JUNO", "juno-1", "ujuno", "https://www.mintscan.io/juno", "juno-network"),
-    "seda": _cosmos("Seda", "https://seda.api.pocket.network", "SEDA", "seda-1", "aseda", "https://www.mintscan.io/seda", "seda-2", 18),
-    "persistence": _cosmos("Persistence", "https://persistence.api.pocket.network", "XPRT", "core-1", "uxprt", "https://www.mintscan.io/persistence", "persistence"),
-    "fetch": _cosmos("Fetch.ai", "https://fetch.api.pocket.network", "FET", "fetchhub-4", "afet", "https://www.mintscan.io/fetchai", "fetch-ai", 18),
-    "jackal": _cosmos("Jackal", "https://jackal.api.pocket.network", "JKL", "jackal-1", "ujkl", "https://www.mintscan.io/jackal", "jackal-protocol"),
-    "cheqd": _cosmos("Cheqd", "https://cheqd.api.pocket.network", "CHEQ", "cheqd-mainnet-1", "ncheq", "https://www.mintscan.io/cheqd", "cheqd-network", 9),
-    "chihuahua": _cosmos("Chihuahua", "https://chihuahua.api.pocket.network", "HUAHUA", "chihuahua-1", "uhuahua", "https://www.mintscan.io/chihuahua", "chihuahua-token"),
-    "shentu": _cosmos("Shentu", "https://shentu.api.pocket.network", "CTK", "shentu-2.2", "uctk", "https://www.mintscan.io/shentu", "certik"),
-    "atomone": _cosmos("AtomOne", "https://atomone.api.pocket.network", "ATONE", "atomone-1", "uatone", "https://www.mintscan.io/atomone", None),
+    "osmosis": _cosmos("Osmosis", "https://osmosis.api.pocket.network", "OSMO", "osmosis-1", "uosmo", "https://www.mintscan.io/osmosis", "osmosis", "osmo"),
+    "pocket": _cosmos("Pocket", "https://pocket.api.pocket.network", "POKT", "pocket", "upokt", "https://explorer.pokt.network", "pocket-network", "pokt"),
+    "akash": _cosmos("Akash", "https://akash.api.pocket.network", "AKT", "akashnet-2", "uakt", "https://www.mintscan.io/akash", "akash-network", "akash"),
+    "juno": _cosmos("Juno", "https://juno.api.pocket.network", "JUNO", "juno-1", "ujuno", "https://www.mintscan.io/juno", "juno-network", "juno"),
+    "seda": _cosmos("Seda", "https://seda.api.pocket.network", "SEDA", "seda-1", "aseda", "https://www.mintscan.io/seda", "seda-2", "seda", 18),
+    "persistence": _cosmos("Persistence", "https://persistence.api.pocket.network", "XPRT", "core-1", "uxprt", "https://www.mintscan.io/persistence", "persistence", "persistence"),
+    "fetch": _cosmos("Fetch.ai", "https://fetch.api.pocket.network", "FET", "fetchhub-4", "afet", "https://www.mintscan.io/fetchai", "fetch-ai", "fetch", 18),
+    "jackal": _cosmos("Jackal", "https://jackal.api.pocket.network", "JKL", "jackal-1", "ujkl", "https://www.mintscan.io/jackal", "jackal-protocol", "jkl"),
+    "cheqd": _cosmos("Cheqd", "https://cheqd.api.pocket.network", "CHEQ", "cheqd-mainnet-1", "ncheq", "https://www.mintscan.io/cheqd", "cheqd-network", "cheqd", 9),
+    "chihuahua": _cosmos("Chihuahua", "https://chihuahua.api.pocket.network", "HUAHUA", "chihuahua-1", "uhuahua", "https://www.mintscan.io/chihuahua", "chihuahua-token", "chihuahua"),
+    "shentu": _cosmos("Shentu", "https://shentu.api.pocket.network", "CTK", "shentu-2.2", "uctk", "https://www.mintscan.io/shentu", "certik", "shentu"),
+    "atomone": _cosmos("AtomOne", "https://atomone.api.pocket.network", "ATONE", "atomone-1", "uatone", "https://www.mintscan.io/atomone", None, "atone"),
 }
 
 

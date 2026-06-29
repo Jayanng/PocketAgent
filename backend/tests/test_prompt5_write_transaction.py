@@ -20,7 +20,29 @@ class _WriteFakeRPC:
         self.settings = type("S", (), {"notional_pokt_per_relay": 0.00089})()
 
     def get_protocol(self, chain: str) -> str:
-        return {"ethereum": "evm", "solana": "solana", "tron": "tron", "near": "near"}[chain]
+        return {
+            "ethereum": "evm",
+            "solana": "solana",
+            "tron": "tron",
+            "sui": "sui",
+            "near": "near",
+            "osmosis": "cosmos",
+        }[chain]
+
+    async def get_balance(self, chain: str, address: str) -> dict:
+        symbols = {
+            "ethereum": "ETH",
+            "solana": "SOL",
+            "tron": "TRX",
+            "sui": "SUI",
+            "near": "NEAR",
+            "osmosis": "OSMO",
+        }
+        return {
+            "wei": 10**30,
+            "raw": 10**30,
+            "symbol": symbols.get(chain, "TOKEN"),
+        }
 
     async def call(self, chain: str, method: str, params: list | None = None) -> object:
         params = params or []
@@ -67,6 +89,7 @@ def _context(chains: list[str]) -> tuple[ToolContext, _WriteFakeRPC]:
             "evm": "encrypted-blob",
             "solana": "encrypted-solana",
             "tron": "encrypted-tron",
+            "sui": "encrypted-sui",
         },
         "wallet_address": account.address,
         "wallet_addresses": {
@@ -85,6 +108,9 @@ def _decrypt_side_effect(encrypted: str) -> str:
         "encrypted-blob": EVM_PRIVATE_KEY,
         "encrypted-solana": SOLANA_PRIVATE_KEY,
         "encrypted-tron": TRON_PRIVATE_KEY,
+        "encrypted-sui": "AHsDz816o1j59XMM7OhxABaFVI2d7ttDNh1iMt/ItGfF",
+        "encrypted-near": "ed25519:3D4YudUqre6Rpf8uDzZtk7aXPtyXJ9F8Kj3YqYqYqYqYq",
+        "encrypted-cosmos": EVM_PRIVATE_KEY.removeprefix("0x"),
     }[encrypted]
 
 
@@ -228,6 +254,64 @@ class NonEVMWriteTransactionTestCase(unittest.IsolatedAsyncioTestCase):
 
     @patch("backend.tools.transaction_tools.decrypt_private_key", side_effect=_decrypt_side_effect)
     @patch("backend.tools.transaction_tools.update_agent", new=AsyncMock())
+    @patch(
+        "backend.services.sui_transfer.execute_sui_native_transfer",
+        return_value={
+            "from": "0x9f2eee3323919729963640cb311686093fcee80c2b4c9d80a421c8fffc4fdd56",
+            "tx_hash": "sui-digest-789",
+            "amount_mist": 1_000_000_000,
+        },
+    )
+    async def test_send_transaction_signs_and_broadcasts_sui(self, mock_execute, mock_decrypt) -> None:
+        ctx, rpc = _context(["sui"])
+
+        result = await send_transaction(
+            ctx,
+            {
+                "chain": "sui",
+                "to_address": "0x00000000000000000000000000000000000000000000000000000000000000dEaD",
+                "amount": "1",
+            },
+        )
+
+        self.assertEqual(result["protocol"], "sui")
+        self.assertEqual(result["tx_hash"], "sui-digest-789")
+        self.assertEqual(result["amount_mist"], 1_000_000_000)
+        mock_execute.assert_called_once()
+        self.assertEqual(rpc.calls, [])
+        self.assertEqual(rpc.sent_raw, [])
+
+    @patch("backend.tools.transaction_tools.decrypt_private_key", side_effect=_decrypt_side_effect)
+    @patch("backend.tools.transaction_tools.update_agent", new=AsyncMock())
+    @patch(
+        "backend.services.near_transfer.execute_near_native_transfer",
+        return_value={
+            "from": "a" * 64,
+            "tx_hash": "near-tx-hash-456",
+            "amount_yocto": 1_000_000_000_000_000_000_000_000,
+        },
+    )
+    async def test_send_transaction_signs_and_broadcasts_near(self, mock_execute, mock_decrypt) -> None:
+        ctx, rpc = _context(["near"])
+        ctx.agent["wallet_addresses"]["near"] = "a" * 64
+        ctx.agent["encrypted_wallets"]["near"] = "encrypted-near"
+
+        result = await send_transaction(
+            ctx,
+            {
+                "chain": "near",
+                "to_address": "bob.near",
+                "amount": "1",
+            },
+        )
+
+        self.assertEqual(result["protocol"], "near")
+        self.assertEqual(result["tx_hash"], "near-tx-hash-456")
+        self.assertEqual(rpc.calls, [])
+        self.assertEqual(rpc.sent_raw, [])
+
+    @patch("backend.tools.transaction_tools.decrypt_private_key", side_effect=_decrypt_side_effect)
+    @patch("backend.tools.transaction_tools.update_agent", new=AsyncMock())
     async def test_send_transaction_signs_and_broadcasts_tron(self, mock_decrypt) -> None:
         ctx, rpc = _context(["tron"])
 
@@ -246,20 +330,39 @@ class NonEVMWriteTransactionTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(call[1] == "wallet/broadcasttransaction" for call in rpc.calls))
         self.assertEqual(rpc.sent_raw, [])
 
-    async def test_unsupported_native_protocol_defers_without_broadcast(self) -> None:
-        ctx, rpc = _context(["near"])
+    @patch("backend.tools.transaction_tools.decrypt_private_key", side_effect=_decrypt_side_effect)
+    @patch("backend.tools.transaction_tools.update_agent", new=AsyncMock())
+    @patch(
+        "backend.services.cosmos_transfer.execute_cosmos_native_transfer",
+        return_value={
+            "from": "osmo1sender",
+            "tx_hash": "cosmos-tx-hash-123",
+            "amount_base": 1_000_000,
+            "denom": "uosmo",
+            "chain_id": "osmosis-1",
+        },
+    )
+    @patch(
+        "backend.services.cosmos_transfer.cosmos_address_from_private_key",
+        return_value="osmo1sender",
+    )
+    async def test_send_transaction_signs_and_broadcasts_cosmos(
+        self, _mock_address, mock_execute, _mock_decrypt
+    ) -> None:
+        ctx, rpc = _context(["osmosis"])
+        ctx.agent["encrypted_wallets"]["cosmos"] = "encrypted-cosmos"
 
         result = await send_transaction(
             ctx,
             {
-                "chain": "near",
-                "to_address": "recipient.near",
+                "chain": "osmosis",
+                "to_address": "osmo1recipient",
                 "amount": "1",
             },
         )
 
-        self.assertEqual(result["protocol"], "near")
-        self.assertEqual(result["status"], "deferred")
+        self.assertEqual(result["protocol"], "cosmos")
+        self.assertEqual(result["tx_hash"], "cosmos-tx-hash-123")
         self.assertEqual(rpc.calls, [])
         self.assertEqual(rpc.sent_raw, [])
 

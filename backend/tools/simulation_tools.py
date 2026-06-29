@@ -27,6 +27,12 @@ async def simulate_transaction(context: ToolContext, args: dict[str, Any]) -> di
         return await _simulate_solana(context, chain, operation_type, args)
     if protocol == "tron":
         return await _simulate_tron(context, chain, operation_type, args)
+    if protocol == "sui":
+        return await _simulate_sui(context, chain, operation_type, args)
+    if protocol == "cosmos":
+        return await _simulate_cosmos(context, chain, operation_type, args)
+    if protocol == "near":
+        return await _simulate_near(context, chain, operation_type, args)
     return {
         "chain": chain,
         "protocol": protocol,
@@ -119,6 +125,146 @@ async def _simulate_solana(
         }
 
 
+async def _simulate_cosmos(
+    context: ToolContext, chain: str, operation_type: str, args: dict[str, Any]
+) -> dict[str, Any]:
+    try:
+        try:
+            from ..services.chain_registry import get_chain_metadata
+            from ..services.cosmos_transfer import cosmos_address_from_private_key
+        except ImportError:
+            from services.chain_registry import get_chain_metadata
+            from services.cosmos_transfer import cosmos_address_from_private_key
+
+        metadata = get_chain_metadata(chain)
+        decimals = int(metadata["decimals"])
+        amount_base = 0
+        if args.get("amount"):
+            amount_base = int(float(str(args["amount"])) * (10 ** decimals))
+        sender = (context.agent.get("wallet_addresses") or {}).get("cosmos")
+        if sender and amount_base > 0:
+            bech32_prefix = str(metadata.get("cosmos_bech32_prefix") or "cosmos")
+            encrypted = (context.agent.get("encrypted_wallets") or {}).get("cosmos")
+            if encrypted:
+                try:
+                    from ..services.encryption import decrypt_private_key
+                except ImportError:
+                    from services.encryption import decrypt_private_key
+                sender = cosmos_address_from_private_key(decrypt_private_key(str(encrypted)), bech32_prefix)
+            balance = await context.rpc_client.get_balance(chain, str(sender))
+            available_base = int(balance.get("wei", balance.get("raw", 0)) or 0)
+            if available_base < amount_base:
+                return {
+                    "chain": chain,
+                    "protocol": "cosmos",
+                    "operation_type": operation_type,
+                    "success": False,
+                    "error": (
+                        f"Insufficient {metadata['symbol']} balance: requested {amount_base} base units, "
+                        f"available {available_base} base units."
+                    ),
+                }
+        gas = await context.rpc_client.get_gas_price(chain)
+        return {
+            "chain": chain,
+            "protocol": "cosmos",
+            "operation_type": operation_type,
+            "success": True,
+            "estimate": gas,
+            "message": "Cosmos native transfer dry-run uses reference gas price and balance checks.",
+        }
+    except Exception as exc:
+        return {
+            "chain": chain,
+            "protocol": "cosmos",
+            "operation_type": operation_type,
+            "success": False,
+            "error": str(exc),
+        }
+
+
+async def _simulate_near(
+    context: ToolContext, chain: str, operation_type: str, args: dict[str, Any]
+) -> dict[str, Any]:
+    try:
+        amount_yocto = 0
+        if args.get("amount"):
+            amount_yocto = int(float(str(args["amount"])) * (10 ** 24))
+        sender = (context.agent.get("wallet_addresses") or {}).get("near")
+        if sender and amount_yocto > 0:
+            balance = await context.rpc_client.get_balance(chain, str(sender))
+            available_yocto = int(balance.get("wei", balance.get("raw", 0)) or 0)
+            if available_yocto < amount_yocto:
+                return {
+                    "chain": chain,
+                    "protocol": "near",
+                    "operation_type": operation_type,
+                    "success": False,
+                    "error": (
+                        f"Insufficient NEAR balance: requested {amount_yocto} yoctoNEAR, "
+                        f"available {available_yocto} yoctoNEAR."
+                    ),
+                }
+        gas = await context.rpc_client.get_gas_price(chain)
+        return {
+            "chain": chain,
+            "protocol": "near",
+            "operation_type": operation_type,
+            "success": True,
+            "estimate": gas,
+            "message": "NEAR native transfer dry-run uses reference gas price and balance checks.",
+        }
+    except Exception as exc:
+        return {
+            "chain": chain,
+            "protocol": "near",
+            "operation_type": operation_type,
+            "success": False,
+            "error": str(exc),
+        }
+
+
+async def _simulate_sui(
+    context: ToolContext, chain: str, operation_type: str, args: dict[str, Any]
+) -> dict[str, Any]:
+    try:
+        gas = await context.rpc_client.get_gas_price(chain)
+        amount_mist = 0
+        if args.get("amount"):
+            amount_mist = int(float(str(args["amount"])) * (10 ** 9))
+        sender = (context.agent.get("wallet_addresses") or {}).get("sui")
+        if sender and amount_mist > 0:
+            balance = await context.rpc_client.get_balance(chain, str(sender))
+            available_mist = int(balance.get("wei", balance.get("raw", 0)) or 0)
+            if available_mist < amount_mist:
+                return {
+                    "chain": chain,
+                    "protocol": "sui",
+                    "operation_type": operation_type,
+                    "success": False,
+                    "error": (
+                        f"Insufficient SUI balance: requested {amount_mist} MIST, "
+                        f"available {available_mist} MIST."
+                    ),
+                }
+        return {
+            "chain": chain,
+            "protocol": "sui",
+            "operation_type": operation_type,
+            "success": True,
+            "estimate": gas,
+            "message": "Sui native transfer dry-run uses reference gas price and balance checks.",
+        }
+    except Exception as exc:
+        return {
+            "chain": chain,
+            "protocol": "sui",
+            "operation_type": operation_type,
+            "success": False,
+            "error": str(exc),
+        }
+
+
 async def _simulate_tron(
     context: ToolContext, chain: str, operation_type: str, args: dict[str, Any]
 ) -> dict[str, Any]:
@@ -176,7 +322,7 @@ TOOLS = [
     register_tool(
         function_schema(
             "simulate_transaction",
-            "Dry-run a transaction before broadcasting it. EVM uses eth_estimateGas + eth_call; Solana uses simulateTransaction; Tron uses wallet/triggerconstantcontract.",
+            "Dry-run a transaction before broadcasting it. EVM uses eth_estimateGas + eth_call; Solana uses simulateTransaction; Tron uses wallet/triggerconstantcontract; Cosmos, Sui, and NEAR use balance and reference gas checks.",
             {
                 "chain": {"type": "string"},
                 "operation_type": {"type": "string", "enum": ["native_transfer", "erc20_transfer", "contract_call"]},

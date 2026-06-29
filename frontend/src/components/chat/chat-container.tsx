@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { AlertCircle, Bot, Menu, Zap } from "lucide-react";
+import { useAccount } from "wagmi";
+import { AlertCircle, Bot, Menu, Settings2, Wallet, Zap } from "lucide-react";
 
 import { ChainIndicator } from "@/components/chat/chain-indicator";
 import { ChatInput } from "@/components/chat/chat-input";
@@ -12,6 +14,7 @@ import { ChatSidebar } from "@/components/chat/chat-sidebar";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useChatStore } from "@/store/chat-store";
+import { useAgentStore } from "@/store/agent-store";
 
 const QUICK_PROMPTS = [
   "What's the latest block on Ethereum?",
@@ -23,12 +26,19 @@ const QUICK_PROMPTS = [
 export function ChatContainer() {
   const searchParams = useSearchParams();
   const requestedAgentId = searchParams.get("agent");
+  const { address, isConnected } = useAccount();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+
   const {
     agents,
     selectedAgentId,
+    selectedAgent,
     conversations,
+    selectAgent,
+  } = useAgentStore();
+
+  const {
     currentConversationId,
     messages,
     isLoading,
@@ -36,11 +46,11 @@ export function ChatContainer() {
     activeChains,
     error,
     initialize,
-    selectAgent,
     sendMessage,
     loadConversation,
     createNewChat,
-    createDefaultAgent,
+    deleteConversation,
+    refreshWorkspace,
   } = useChatStore();
 
   useEffect(() => {
@@ -61,7 +71,7 @@ export function ChatContainer() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, isLoading]);
 
-  const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
+  const agent = selectedAgent ?? agents.find((item) => item.id === selectedAgentId);
 
   return (
     <section className="flex h-full w-full flex-col lg:flex-row animate-fade-in min-h-0 overflow-hidden bg-background">
@@ -76,12 +86,11 @@ export function ChatContainer() {
         onNewChat={() => { createNewChat(); setSidebarOpen(false); }}
         onSelectAgent={(id) => void selectAgent(id)}
         onLoadConversation={(id) => { void loadConversation(id); setSidebarOpen(false); }}
-        onCreateAgent={() => void createDefaultAgent()}
-        onRefresh={() => void initialize()}
+        onDeleteConversation={(id) => void deleteConversation(id)}
+        onRefresh={() => void refreshWorkspace()}
       />
 
       <div className="flex flex-col flex-1 h-full min-h-0 min-w-0 bg-background">
-        {/* Chat Pane Top Header */}
         <header className="z-10 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border/30 bg-card/15 px-3 backdrop-blur-md sm:h-16 sm:px-6">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <Button
@@ -96,9 +105,9 @@ export function ChatContainer() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h1 className="text-sm font-bold tracking-tight text-foreground truncate">
-                  {selectedAgent ? `${selectedAgent.name}` : "Workspace"}
+                  {agent ? agent.name : "Workspace"}
                 </h1>
-                {selectedAgent && (
+                {agent && (
                   <span className="hidden items-center gap-1.5 rounded-full bg-green-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-green-500 sm:inline-flex">
                     <span className="h-1 w-1 animate-pulse-soft rounded-full bg-green-500" />
                     Online
@@ -106,14 +115,34 @@ export function ChatContainer() {
                 )}
               </div>
               <p className="text-[10px] text-muted-foreground/75 truncate mt-0.5">
-                {selectedAgent
-                  ? `${selectedAgent.chains.length} blockchain networks enabled`
+                {agent
+                  ? `${agent.chains.length} blockchain networks enabled`
                   : "Pocket Network RPC natural language interface"}
               </p>
             </div>
           </div>
-          <div className="hidden max-w-[42%] shrink-0 sm:block sm:max-w-none">
-            <ChainIndicator chains={activeChains} isLoading={isLoading} compact />
+          <div className="flex shrink-0 items-center gap-2">
+            {isConnected && address && (
+              <span
+                className="hidden items-center gap-1 rounded-md border border-border/50 bg-muted/20 px-2 py-1 font-mono text-[10px] text-muted-foreground sm:inline-flex"
+                title="Connected wallet passed to agent tools"
+              >
+                <Wallet size={11} className="text-primary/70" />
+                {address.slice(0, 6)}…{address.slice(-4)}
+              </span>
+            )}
+            {agent && (
+              <Link
+                href="/agents"
+                className="hidden items-center gap-1 rounded-md border border-border/50 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline-flex"
+              >
+                <Settings2 size={12} />
+                Manage
+              </Link>
+            )}
+            <div className="hidden max-w-[42%] shrink-0 sm:block sm:max-w-none">
+              <ChainIndicator chains={activeChains} isLoading={isLoading} compact />
+            </div>
           </div>
         </header>
 
@@ -124,17 +153,14 @@ export function ChatContainer() {
           </div>
         )}
 
-        {/* Scrollable Chat Area */}
         <div className="flex-1 min-h-0 relative overflow-hidden">
           <ScrollArea className="h-full w-full">
             <div className="mx-auto w-full max-w-3xl space-y-6 px-3 py-6 pb-40 sm:px-6 sm:py-8 sm:pb-36">
-              
-              {/* Empty state / Welcome screen */}
               {!messages.length && !isLoading && (
                 <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-8 py-8 animate-fade-in">
                   <div className="flex flex-col items-center gap-4 text-center">
                     <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-primary/20 bg-primary/5 shadow-md shadow-primary/5">
-                      {selectedAgent ? (
+                      {agent ? (
                         <Image
                           src="/logo.png"
                           alt="PocketAgent"
@@ -148,19 +174,17 @@ export function ChatContainer() {
                     </div>
                     <div>
                       <h2 className="text-md font-bold tracking-tight text-foreground">
-                        {selectedAgent
-                          ? `${selectedAgent.name} is ready`
-                          : "Select an agent to begin"}
+                        {agent ? `${agent.name} is ready` : "Select an agent to begin"}
                       </h2>
                       <p className="mt-1.5 text-xs text-muted-foreground/60 max-w-xs mx-auto leading-relaxed">
-                        {selectedAgent
-                          ? `Ask anything about ${selectedAgent.chains.length} enabled blockchain networks through Pocket RPC.`
-                          : "Choose an agent from the workspace sidebar to start a conversation."}
+                        {agent
+                          ? `Ask anything about ${agent.chains.length} enabled blockchain networks through Pocket RPC.`
+                          : "Create an agent on the Agents page to start a conversation."}
                       </p>
                     </div>
                   </div>
 
-                  {selectedAgent && (
+                  {agent && (
                     <div className="flex flex-col items-center gap-3 w-full max-w-lg">
                       <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/40 font-bold">Quick suggestions</span>
                       <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 w-full">
@@ -180,30 +204,14 @@ export function ChatContainer() {
                     </div>
                   )}
 
-                  {selectedAgent && selectedAgent.chains.length > 0 && (
-                    <div className="flex flex-col items-center gap-2">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/40 font-bold">Supported networks</span>
-                      <div className="flex flex-wrap justify-center gap-1.5 max-w-sm">
-                        {selectedAgent.chains.slice(0, 8).map((chain) => (
-                          <span
-                            key={chain}
-                            className="rounded-md border border-border/40 bg-muted/20 px-2 py-0.5 font-mono text-[9px] text-muted-foreground uppercase"
-                          >
-                            {chain}
-                          </span>
-                        ))}
-                        {selectedAgent.chains.length > 8 && (
-                          <span className="rounded-md border border-border/40 bg-muted/20 px-2 py-0.5 font-mono text-[9px] text-muted-foreground/60">
-                            +{selectedAgent.chains.length - 8} more
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                  {!agent && (
+                    <Link href="/agents" className="pa-button text-sm">
+                      Go to Agents
+                    </Link>
                   )}
                 </div>
               )}
 
-              {/* Messages list */}
               {messages.map((message) => (
                 <ChatMessage key={message.id} message={message} />
               ))}
@@ -212,7 +220,6 @@ export function ChatContainer() {
             </div>
           </ScrollArea>
 
-          {/* Floating Input Capsule */}
           <div className="safe-bottom pointer-events-none absolute bottom-0 left-0 right-0 z-10 flex flex-col items-center bg-gradient-to-t from-background via-background/95 to-transparent p-3 sm:p-6">
             <div className="w-full max-w-3xl pointer-events-auto">
               <ChatInput
@@ -221,11 +228,11 @@ export function ChatContainer() {
               />
               <div className="flex min-h-5 items-center justify-between gap-3 text-[10px] text-muted-foreground/45 px-2 mt-1">
                 <span className="truncate font-mono uppercase tracking-wider">
-                  {selectedAgent
-                    ? `${selectedAgent.chains.length} chains active · ${selectedAgent.name}`
-                    : "No active agent selector"}
+                  {agent
+                    ? `${agent.chains.length} chains active · ${agent.name}`
+                    : "No active agent"}
                 </span>
-                {selectedAgent && (
+                {agent && (
                   <span className="flex items-center gap-1.5 font-mono">
                     <span className="h-1 w-1 rounded-full bg-primary animate-pulse-soft" />
                     pocket-rpc

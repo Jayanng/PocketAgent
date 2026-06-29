@@ -66,6 +66,14 @@ export type AgentCreateInput = {
   spending_cap?: number;
 };
 
+export type AgentUpdateInput = {
+  name?: string;
+  description?: string;
+  chains?: string[];
+  capabilities?: string[];
+  spending_cap?: number;
+};
+
 export type AgentCreateResponse = {
   id: string;
   name: string;
@@ -354,6 +362,13 @@ export const api = {
     balances(id: string) {
       return request<AgentBalancesResponse>(`/api/agents/${encodeURIComponent(id)}/balances`, {
         accessToken: getAgentAccessToken(id),
+      });
+    },
+    update(id: string, data: AgentUpdateInput) {
+      return request<Agent>(`/api/agents/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        accessToken: getAgentAccessToken(id),
+        body: JSON.stringify(data),
       });
     },
     delete(id: string) {

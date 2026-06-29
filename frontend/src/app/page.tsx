@@ -2,7 +2,7 @@
 
 import { useRef, useMemo, useEffect } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useAccount } from "wagmi";
 import {
@@ -22,28 +22,49 @@ import {
 } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { ProtocolFamiliesBanner } from "@/components/brand/protocol-families-banner";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
-import { ConnectButton } from "@/components/wallet/connect-button";
+import { SiteHeader } from "@/components/layout/site-header";
 import { useLandingTheme } from "@/hooks/use-landing-theme";
 import { cn } from "@/lib/utils";
 
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
 
-const CHAINS = [
-  { ticker: "ETH", color: "#627EEA", x: 50, y: 15 },
-  { ticker: "SOL", color: "#9945FF", x: 82, y: 28 },
-  { ticker: "MATIC", color: "#8247E5", x: 18, y: 42 },
-  { ticker: "ATOM", color: "#2E3148", x: 72, y: 62 },
-  { ticker: "AVAX", color: "#E84142", x: 30, y: 72 },
-  { ticker: "NEAR", color: "#1C1C1C", x: 60, y: 82 },
-  { ticker: "BNB", color: "#F0B90B", x: 42, y: 35 },
-  { ticker: "BASE", color: "#0052FF", x: 88, y: 50 },
-];
+function HeroDemoChatPlaceholder() {
+  return (
+    <div className="landing-demo-chat relative" aria-hidden="true">
+      <div className="landing-demo-chat-glow pointer-events-none absolute -inset-4 rounded-[1.75rem] opacity-80" />
+      <div className="landing-demo-chat-shell relative overflow-hidden rounded-2xl border shadow-xl">
+        <div className="landing-demo-chat-header border-b" />
+        <div className="landing-demo-chat-body" />
+        <div className="landing-demo-chat-footer border-t" />
+      </div>
+    </div>
+  );
+}
 
-const EDGES: Array<[number, number]> = [
-  [0, 2], [0, 3], [0, 7], [1, 5], [1, 7],
-  [2, 4], [2, 6], [3, 5], [4, 6], [6, 7],
-];
+const HeroDemoChat = dynamic(
+  () =>
+    import("@/components/brand/hero-demo-chat").then((mod) => mod.HeroDemoChat),
+  { ssr: false, loading: () => <HeroDemoChatPlaceholder /> },
+);
+
+function GitHubIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+      <path d="M9 18c-4.51 2-5-2-7-2" />
+    </svg>
+  );
+}
 
 const STATS = [
   { value: "52", label: "Chains Supported", suffix: "" },
@@ -60,7 +81,6 @@ const FEATURES = [
     icon: Layers,
     span: "large" as const,
     gradient: "var(--gradient-blue)",
-    imageSeed: "blockchain-network-nodes",
   },
   {
     title: "MCP Protocol",
@@ -68,8 +88,7 @@ const FEATURES = [
       "Native Model Context Protocol support. Any MCP-compatible client - Claude Desktop, Codex, Cursor - can drive your agents natively.",
     icon: PlugZap,
     span: "small" as const,
-    gradient: "var(--gradient-orange)",
-    imageSeed: "protocol-layers-abstract",
+    gradient: "var(--gradient-blue-deep)",
   },
   {
     title: "Decentralized by Design",
@@ -77,8 +96,7 @@ const FEATURES = [
       "No centralized RPC provider. Every call routes through Pocket Network's decentralized node infrastructure. Censorship resistant by default.",
     icon: ShieldCheck,
     span: "small" as const,
-    gradient: "var(--gradient-brand)",
-    imageSeed: "distributed-network-dots",
+    gradient: "var(--gradient-blue-soft)",
   },
   {
     title: "52-Chain Network",
@@ -86,118 +104,20 @@ const FEATURES = [
       "EVM, Solana, Sui, Near, Tron, Cosmos — one unified interface across every major protocol family. Live RPC endpoints for all supported chains.",
     icon: Globe,
     span: "large" as const,
-    gradient: "var(--gradient-blue)",
-    imageSeed: "chain-links-connected",
+    gradient: "var(--gradient-blue-deep)",
   },
 ];
 
 const CHAIN_LOGOS = [
-  { slug: "ethereum", name: "Ethereum" },
-  { slug: "solana", name: "Solana" },
-  { slug: "polygon", name: "Polygon" },
-  { slug: "cosmos", name: "Cosmos" },
-  { slug: "sui", name: "Sui" },
-  { slug: "near", name: "NEAR" },
-  { slug: "tron", name: "Tron" },
-  { slug: "bitcoin", name: "Bitcoin" },
+  { name: "Ethereum", src: "/protocols/ethereum.svg" },
+  { name: "Solana", src: "/protocols/solana.svg" },
+  { name: "Polygon", src: "/protocols/polygon.svg" },
+  { name: "Cosmos", src: "/protocols/cosmos.svg" },
+  { name: "Sui", src: "/protocols/sui.svg" },
+  { name: "NEAR", src: "/protocols/near.svg" },
+  { name: "Tron", src: "/protocols/tron.svg" },
+  { name: "Bitcoin", src: "/protocols/bitcoin.svg" },
 ];
-
-function ChainNetwork({ theme }: { theme: "light" | "dark" }) {
-  const reduce = useReducedMotion();
-
-  return (
-    <div className="relative flex h-full w-full items-center justify-center">
-      <div
-        className={cn(
-          "absolute h-80 w-80 rounded-full blur-[100px]",
-          theme === "light" ? "bg-blue-500/8" : "bg-blue-500/10",
-        )}
-      />
-      <div
-        className={cn(
-          "absolute h-60 w-60 translate-x-32 translate-y-16 rounded-full blur-[80px]",
-          theme === "light" ? "bg-amber-400/10" : "bg-orange-500/8",
-        )}
-      />
-
-      <svg
-        viewBox="0 0 100 100"
-        className="h-full w-full drop-shadow-lg"
-        style={{ filter: "drop-shadow(0 0 12px rgba(30,136,229,0.08))" }}
-      >
-        {EDGES.map(([i, j], idx) => {
-          const from = CHAINS[i];
-          const to = CHAINS[j];
-          return (
-            <motion.line
-              key={`${i}-${j}`}
-              x1={from.x}
-              y1={from.y}
-              x2={to.x}
-              y2={to.y}
-              stroke={from.color}
-              strokeWidth={0.15}
-              strokeOpacity={0.25}
-              initial={reduce ? false : { pathLength: 0, opacity: 0 }}
-              animate={{ pathLength: 1, opacity: 1 }}
-              transition={{ duration: 2, delay: idx * 0.08, ease: EASE_OUT }}
-            />
-          );
-        })}
-
-        {CHAINS.map((chain, i) => (
-          <g key={chain.ticker}>
-            <motion.circle
-              cx={chain.x}
-              cy={chain.y}
-              r={4}
-              fill={chain.color}
-              fillOpacity={0.08}
-              animate={
-                reduce
-                  ? undefined
-                  : { scale: [1, 1.3, 1], opacity: [0.08, 0.15, 0.08] }
-              }
-              transition={{
-                duration: 3,
-                delay: i * 0.3,
-                repeat: Infinity,
-                ease: "easeInOut",
-              }}
-            />
-            <motion.circle
-              cx={chain.x}
-              cy={chain.y}
-              r={1.2}
-              fill={chain.color}
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{
-                type: "spring",
-                stiffness: 200,
-                damping: 15,
-                delay: 0.5 + i * 0.1,
-              }}
-            />
-            <text
-              x={chain.x}
-              y={chain.y + 3.2}
-              textAnchor="middle"
-              fill={chain.color}
-              fillOpacity={theme === "light" ? 0.9 : 0.75}
-              fontSize={3.2}
-              fontWeight={700}
-              fontFamily="var(--font-inter), system-ui, sans-serif"
-              letterSpacing="0.08em"
-            >
-              {chain.ticker}
-            </text>
-          </g>
-        ))}
-      </svg>
-    </div>
-  );
-}
 
 function CountUp({
   value,
@@ -248,75 +168,10 @@ function CountUp({
   );
 }
 
-function Nav() {
-  const navLinks = (
-    <>
-      <Link href="/chat" className="landing-nav-link text-[13px] font-medium">
-        Chat
-      </Link>
-      <Link href="/dashboard" className="landing-nav-link text-[13px] font-medium">
-        Dashboard
-      </Link>
-      <Link href="/agents" className="landing-nav-link landing-nav-link-gold text-[13px] font-medium">
-        Agents
-      </Link>
-    </>
-  );
-
-  return (
-    <motion.header
-      className="landing-nav fixed inset-x-0 top-0 z-50 border-b backdrop-blur-xl"
-      initial={{ y: -20, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.6, ease: EASE_OUT }}
-    >
-      <div className="safe-top mx-auto max-w-7xl px-4 py-3 sm:px-6 sm:py-4">
-        <div className="flex flex-col gap-3 md:hidden">
-          <div className="flex items-center justify-between gap-2">
-            <Logo
-              size="md"
-              textClassName="landing-logo truncate text-sm"
-              accentClassName="landing-logo-accent"
-            />
-            <div className="flex shrink-0 items-center gap-2">
-              <ThemeToggle className="landing-theme-toggle" />
-              <ConnectButton tone="landing" />
-            </div>
-          </div>
-          <nav className="flex items-center justify-center gap-1 rounded-full border border-[var(--lp-border)] bg-[var(--lp-surface)] p-1">
-            <Link href="/chat" className="landing-nav-link flex-1 rounded-full px-2 py-2 text-center text-xs font-medium">
-              Chat
-            </Link>
-            <Link href="/dashboard" className="landing-nav-link flex-1 rounded-full px-2 py-2 text-center text-xs font-medium">
-              Dashboard
-            </Link>
-            <Link href="/agents" className="landing-nav-link landing-nav-link-gold flex-1 rounded-full px-2 py-2 text-center text-xs font-medium">
-              Agents
-            </Link>
-          </nav>
-        </div>
-
-        <div className="hidden items-center justify-between md:flex">
-          <Logo
-            size="md"
-            textClassName="landing-logo text-[15px]"
-            accentClassName="landing-logo-accent"
-          />
-          <nav className="flex items-center gap-6">{navLinks}</nav>
-          <div className="flex items-center gap-2">
-            <ThemeToggle className="landing-theme-toggle" />
-            <ConnectButton tone="landing" />
-          </div>
-        </div>
-      </div>
-    </motion.header>
-  );
-}
-
 function GradientBackground() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute inset-0 grid-pattern opacity-40" />
+      <div className="absolute inset-0 landing-grid-pattern opacity-40" />
       <div className="landing-orb-blue absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full blur-[120px]" />
       <div className="landing-orb-accent absolute -right-40 bottom-0 h-[400px] w-[400px] rounded-full blur-[100px]" />
       <div className="landing-orb-blue absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full blur-[80px]" />
@@ -324,28 +179,30 @@ function GradientBackground() {
   );
 }
 
-const LANDING_THEME_STYLES = {
-  light: {
-    backgroundColor: "#ffffff",
-    color: "#0f172a",
-  },
-  dark: {
-    backgroundColor: "oklch(12% 0.01 255)",
-    color: "oklch(92.5% 0.005 255)",
-  },
-} as const;
+function FeatureCardVisual({
+  gradient,
+  compact = false,
+}: {
+  gradient: string;
+  compact?: boolean;
+}) {
+  return (
+    <div className={cn("landing-card-visual", compact && "landing-card-visual-sm")}>
+      <div className="landing-card-visual-glow" style={{ background: gradient }} />
+      <div className="landing-card-visual-grid" />
+    </div>
+  );
+}
 
 export default function Home() {
   const router = useRouter();
-  const { isConnected, isConnecting, isReconnecting } = useAccount();
+  const { isConnected } = useAccount();
   const reduce = useReducedMotion();
   const { theme } = useLandingTheme();
   const featuresRef = useRef<HTMLElement>(null);
   const featuresInView = useInView(featuresRef, { once: true, margin: "-60px" });
   const statsRef = useRef<HTMLElement>(null);
   const statsInView = useInView(statsRef, { once: true, margin: "-80px" });
-
-  const chainIconColor = theme === "light" ? "1E88E5" : "888888";
 
   useEffect(() => {
     if (isConnected) {
@@ -373,14 +230,13 @@ export default function Home() {
     [],
   );
 
-  if (isConnected || isConnecting || isReconnecting) {
+  if (isConnected) {
     return (
       <div
         className="landing-page flex min-h-[100dvh] items-center justify-center"
         data-landing-theme={theme}
-        style={LANDING_THEME_STYLES[theme]}
       >
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#1E88E5]/20 border-t-[#1E88E5]" />
+        <div className="landing-spinner h-8 w-8 animate-spin rounded-full border-2" />
       </div>
     );
   }
@@ -389,48 +245,24 @@ export default function Home() {
     <div
       className="landing-page relative isolate min-h-[100dvh] overflow-x-clip"
       data-landing-theme={theme}
-      style={LANDING_THEME_STYLES[theme]}
     >
       <div className="pointer-events-none absolute inset-0 -z-10">
         <GradientBackground />
       </div>
-      <Nav />
+      <SiteHeader />
 
-      <section className="relative z-10 mx-auto flex min-h-[100dvh] max-w-7xl flex-col px-4 pb-8 pt-36 sm:px-6 sm:pt-32 md:flex-row md:items-center md:px-6 md:pb-0 md:pt-0">
+      <section className="relative z-10 mx-auto flex min-h-[calc(100dvh-3.5rem)] max-w-7xl flex-col px-4 py-8 sm:px-6 md:min-h-[calc(100dvh-4rem)] md:flex-row md:items-center md:px-6 md:py-12">
         <motion.div
           className="flex-1 md:pr-12 lg:pr-16"
           variants={containerVariants}
           initial="hidden"
           animate="visible"
         >
-          <motion.div
-            variants={itemVariants}
-            className="landing-badge inline-flex items-center gap-2 rounded-full px-3.5 py-1.5"
-          >
-            <span className="relative flex h-1.5 w-1.5">
-              <span
-                className={cn(
-                  "absolute inline-flex h-full w-full animate-ping rounded-full opacity-75",
-                  theme === "light" ? "bg-[#1E88E5]" : "bg-green-400",
-                )}
-              />
-              <span
-                className={cn(
-                  "relative inline-flex h-1.5 w-1.5 rounded-full",
-                  theme === "light" ? "bg-[#1E88E5]" : "bg-green-400",
-                )}
-              />
-            </span>
-            <span className="landing-badge-text text-[11px] font-semibold uppercase tracking-[0.12em]">
-              Decentralized RPC
-            </span>
-          </motion.div>
-
           <motion.h1
             variants={itemVariants}
-            className="landing-heading mt-8 text-[clamp(2.5rem,6vw,4.5rem)] font-bold leading-[0.95] tracking-tight"
+            className="landing-heading text-[clamp(2.5rem,6vw,4.5rem)] font-bold leading-[1.02] tracking-tight"
           >
-            AI Agents for the{" "}
+            <span className="mb-1 block">AI Agents for the</span>
             <span className="gradient-text">Multi-Chain</span>
             <br />
             <span className="landing-heading-line">World</span>
@@ -448,28 +280,31 @@ export default function Home() {
 
           <motion.div
             variants={itemVariants}
-            className="landing-btn-row mt-8 flex flex-wrap items-center gap-3 sm:mt-10 sm:gap-4"
+            className="landing-btn-row mt-8 flex flex-col items-start gap-3 sm:mt-10 sm:flex-row sm:items-center sm:gap-3"
           >
             <Link href="/agents" className="landing-btn">
               Get Started
               <ArrowRight size={16} />
             </Link>
-            <Link href="/chat" className="landing-btn">
-              Try Demo
-            </Link>
+            <a
+              href="https://github.com/Jayanng/PocketAgent"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="landing-btn landing-btn-secondary"
+            >
+              <GitHubIcon size={16} />
+              Star on GitHub
+            </a>
           </motion.div>
         </motion.div>
 
         <motion.div
-          className="mt-8 flex flex-1 justify-center md:mt-0 md:justify-end"
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
+          className="mt-8 shrink-0 md:mt-0 md:ml-auto"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 1.2, delay: 0.3, ease: EASE_OUT }}
         >
-          <div className="relative mx-auto aspect-square w-full max-w-[280px] sm:max-w-md md:ml-auto md:max-w-lg">
-            <div className="glow-blue absolute inset-0 rounded-full" />
-            <ChainNetwork theme={theme} />
-          </div>
+          <HeroDemoChat />
         </motion.div>
       </section>
 
@@ -535,21 +370,13 @@ export default function Home() {
                     {feature.description}
                   </p>
 
-                  {isLarge && feature.title === "52-Chain Network" ? (
-                    <ProtocolFamiliesBanner theme={theme} />
+                  {feature.title === "52-Chain Network" ? (
+                    <ProtocolFamiliesBanner />
                   ) : (
-                    isLarge && (
-                      <div className="landing-card-image relative mt-6 h-32 overflow-hidden rounded-xl md:h-40">
-                        <Image
-                          src={`https://picsum.photos/seed/${feature.imageSeed}/600/300`}
-                          alt=""
-                          fill
-                          className="object-cover opacity-50 transition-opacity group-hover:opacity-70"
-                          sizes="(max-width: 768px) 100vw, 66vw"
-                        />
-                        <div className="landing-card-image-overlay absolute inset-0" />
-                      </div>
-                    )
+                    <FeatureCardVisual
+                      gradient={feature.gradient}
+                      compact={!isLarge}
+                    />
                   )}
                 </div>
               </motion.div>
@@ -578,9 +405,8 @@ export default function Home() {
             transition={{ delay: 0.6, duration: 0.6 }}
           >
             <p className="text-xs">
-              Real-time data via{" "}
-              <span className="landing-stats-footer-gold">Pocket Network</span>{" "}
-              decentralized RPC. No third-party indexers required.
+              Real-time relay metrics and chain health across every supported network.
+              No third-party indexers required.
             </p>
           </motion.div>
         </div>
@@ -595,21 +421,20 @@ export default function Home() {
           transition={{ duration: 0.6, ease: EASE_OUT }}
         >
           <p className="landing-powered mb-8 text-[11px] font-semibold uppercase tracking-[0.18em]">
-            Powered by Pocket Network
+            Supported Networks
           </p>
 
           <div className="mx-auto flex max-w-2xl flex-wrap items-center justify-center gap-x-10 gap-y-6">
             {CHAIN_LOGOS.map((chain) => (
               <div
-                key={chain.slug}
+                key={chain.name}
                 className="landing-chain-item flex items-center gap-2.5 transition-opacity"
               >
-                <Image
-                  src={`https://cdn.simpleicons.org/${chain.slug}/${chainIconColor}`}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={chain.src}
                   alt={chain.name}
-                  width={24}
-                  height={24}
-                  className="h-6 w-6"
+                  className="h-6 w-6 object-contain"
                 />
                 <span className="landing-chain-name text-sm font-medium">
                   {chain.name}
@@ -636,13 +461,13 @@ export default function Home() {
             <Link href="/dashboard" className="landing-footer-link text-xs font-medium">
               Dashboard
             </Link>
-            <Link href="/agents" className="landing-footer-link landing-footer-link-gold text-xs font-medium">
+            <Link href="/agents" className="landing-footer-link landing-nav-link-active text-xs font-medium">
               Agents
             </Link>
           </div>
 
           <p className="landing-footer-powered text-[11px]">
-            Powered by <span className="landing-footer-powered-gold">Pocket Network</span>
+            Powered by <span className="landing-brand-accent">Pocket Network</span>
           </p>
         </div>
       </footer>

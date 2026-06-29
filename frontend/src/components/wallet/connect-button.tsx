@@ -26,8 +26,8 @@ export function ConnectButton({ layout = "horizontal", tone = "default" }: Conne
                 onClick={openConnectModal}
                 className={
                   layout === "horizontal"
-                    ? "landing-btn h-10 min-h-11 px-3 text-[11px] sm:h-9 sm:min-h-0 sm:px-4 sm:text-xs"
-                    : "landing-btn w-full min-h-11 justify-center text-sm"
+                    ? "landing-btn landing-btn-secondary h-10 min-h-11 px-3 text-[11px] sm:h-9 sm:min-h-0 sm:px-4 sm:text-xs"
+                    : "landing-btn landing-btn-secondary w-full min-h-11 justify-center text-sm"
                 }
               >
                 <Wallet size={14} />

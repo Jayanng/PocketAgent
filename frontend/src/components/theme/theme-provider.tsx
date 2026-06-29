@@ -42,12 +42,16 @@ export function applyThemeToDocument(theme: AppTheme) {
   root.classList.add(theme === "light" ? "theme-light" : "theme-dark");
 }
 
-function getInitialTheme(): AppTheme {
-  return readStoredTheme() ?? "light";
-}
-
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<AppTheme>(getInitialTheme);
+  // Keep SSR and the first client render aligned; sync persisted preference after mount.
+  const [theme, setThemeState] = useState<AppTheme>("light");
+
+  useLayoutEffect(() => {
+    const stored = readStoredTheme();
+    if (stored) {
+      setThemeState(stored);
+    }
+  }, []);
 
   useLayoutEffect(() => {
     applyThemeToDocument(theme);

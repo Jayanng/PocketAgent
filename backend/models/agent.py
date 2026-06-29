@@ -66,8 +66,11 @@ class AgentCreateResponse(BaseModel):
 class AgentSummary(BaseModel):
     id: str
     name: str
+    description: str | None = None
     chains: list[str] = Field(default_factory=list)
     capabilities: list[str] = Field(default_factory=list)
+    wallet_address: str | None = None
+    spending_cap: float = 0.1
     is_active: bool = True
 
 

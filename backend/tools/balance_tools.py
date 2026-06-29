@@ -28,13 +28,6 @@ async def sui_get_balance(context: ToolContext, args: dict[str, Any]) -> dict[st
     return await context.rpc_client.get_balance("sui", str(args["address"]))
 
 
-async def radix_unavailable(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "available": False,
-        "message": "Radix not available on Pocket public RPC.",
-    }
-
-
 async def compare_balances(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     address = str(args["address"])
     chains = validate_chains_allowed(context, [str(chain) for chain in args["chains"]])
@@ -92,16 +85,6 @@ TOOLS = [
         ),
         "read",
         sui_get_balance,
-    ),
-    register_tool(
-        function_schema(
-            "radix_get_balance",
-            "Radix balance placeholder. Radix has no Pocket public RPC endpoint in this MVP.",
-            {"address": {"type": "string"}},
-            ["address"],
-        ),
-        "read",
-        radix_unavailable,
     ),
     register_tool(
         function_schema(

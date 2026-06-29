@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { AlertCircle, ChevronDown, HeartPulse, RefreshCw, Zap } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-import { api, type ChainHealth as ChainHealthType, type ChainHealthEntry } from "@/lib/api";
+import { api, type ChainHealthEntry } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 

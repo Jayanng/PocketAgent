@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Fuel, Sparkles, User, Wrench } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -71,6 +71,33 @@ const DEMO_SCRIPT: ScriptBeat[] = [
   { kind: "hold", pauseMs: 2200 },
 ];
 
+function buildStaticMessages(): VisibleMessage[] {
+  const staticMessages: VisibleMessage[] = [];
+  for (const beat of DEMO_SCRIPT) {
+    if (beat.kind === "user") {
+      staticMessages.push({
+        id: `user-${staticMessages.length}`,
+        role: "user",
+        text: beat.text,
+      });
+    } else if (beat.kind === "tool") {
+      staticMessages.push({
+        id: `tool-${staticMessages.length}`,
+        role: "tool",
+        label: beat.label,
+        chain: beat.chain,
+      });
+    } else if (beat.kind === "assistant") {
+      staticMessages.push({
+        id: `assistant-${staticMessages.length}`,
+        role: "assistant",
+        text: beat.text,
+      });
+    }
+  }
+  return staticMessages.slice(0, 5);
+}
+
 function renderInline(text: string) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
   return parts.map((part, index) => {
@@ -114,6 +141,11 @@ export function HeroDemoChat() {
   const [relayCount, setRelayCount] = useState(0);
   const [cycle, setCycle] = useState(0);
 
+  const staticMessages = useMemo(() => buildStaticMessages(), []);
+  const displayMessages = reduceMotion ? staticMessages : messages;
+  const displayRelayCount = reduceMotion ? 3 : relayCount;
+  const displayThinking = reduceMotion ? false : thinking;
+
   useEffect(() => {
     const start = () => setAnimationReady(true);
     if (typeof window.requestIdleCallback === "function") {
@@ -132,39 +164,10 @@ export function HeroDemoChat() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, thinking, scrollToBottom]);
+  }, [displayMessages, displayThinking, scrollToBottom]);
 
   useEffect(() => {
-    if (!animationReady) return;
-
-    if (reduceMotion) {
-      const staticMessages: VisibleMessage[] = [];
-      for (const beat of DEMO_SCRIPT) {
-        if (beat.kind === "user") {
-          staticMessages.push({
-            id: `user-${staticMessages.length}`,
-            role: "user",
-            text: beat.text,
-          });
-        } else if (beat.kind === "tool") {
-          staticMessages.push({
-            id: `tool-${staticMessages.length}`,
-            role: "tool",
-            label: beat.label,
-            chain: beat.chain,
-          });
-        } else if (beat.kind === "assistant") {
-          staticMessages.push({
-            id: `assistant-${staticMessages.length}`,
-            role: "assistant",
-            text: beat.text,
-          });
-        }
-      }
-      setMessages(staticMessages.slice(0, 5));
-      setRelayCount(3);
-      return;
-    }
+    if (!animationReady || reduceMotion) return;
 
     let cancelled = false;
     let stepIndex = 0;
@@ -251,7 +254,7 @@ export function HeroDemoChat() {
           </div>
           <div className="flex items-center gap-1.5 text-[10px] font-mono text-[var(--lp-text-faint)]">
             <Fuel size={12} className="text-[var(--lp-blue)]" />
-            <span>{relayCount}</span>
+            <span>{displayRelayCount}</span>
             <span className="opacity-60">/ 1000 relays</span>
           </div>
         </div>
@@ -261,7 +264,7 @@ export function HeroDemoChat() {
           className="landing-demo-chat-body space-y-3 px-4 py-4"
         >
           <AnimatePresence initial={false}>
-            {messages.map((message) => (
+            {displayMessages.map((message) => (
               <motion.div
                 key={message.id}
                 initial={reduceMotion ? false : { opacity: 0, y: 10 }}
@@ -314,7 +317,7 @@ export function HeroDemoChat() {
             ))}
           </AnimatePresence>
 
-          {thinking && (
+          {displayThinking && (
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}

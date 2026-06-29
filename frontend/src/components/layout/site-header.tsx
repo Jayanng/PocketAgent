@@ -55,11 +55,13 @@ export function SiteHeader() {
   const { isConnected } = useAccount();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [balancesOpen, setBalancesOpen] = useState(false);
+  const [lastPathname, setLastPathname] = useState(pathname);
   const chainCount = Object.keys(CHAIN_CONFIGS).length;
 
-  useEffect(() => {
+  if (pathname !== lastPathname) {
+    setLastPathname(pathname);
     setSidebarOpen(false);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     document.body.style.overflow = sidebarOpen ? "hidden" : "";

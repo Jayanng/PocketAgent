@@ -1,0 +1,6 @@
+{
+  "address": "TExSLYgu6N1UHzyFCnu4a33QHvdH49dBxu",
+  "public_key": "0x0882e05723427e3766763b1da5e0fdac772269a9c52aeb2c619be0110dcaab1ca05da86fbcfefca9b37381b3aab329cf099664de5560406fecedb687ba16018b",
+  "message": "pocketagent:reissue:test-agent:1740000000",
+  "signature": "0x20e4321cab98cde90ef754a812d4633d96e8795c7e2142caf27f5e238b5366a30e490128b09f127364de528187dd8830f2230e2f68ced5a781bb0d8306ca86aa01"
+}

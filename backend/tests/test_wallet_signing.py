@@ -110,3 +110,109 @@ def test_sui_wrong_address():
         public_key=fixture["public_key"],
         expected_address=wrong,
     )
+
+
+def test_near_valid_signature():
+    fixture = json.loads((FIXTURES / "near.json").read_text())
+    assert verify_wallet_signature(
+        chain="near",
+        message=fixture["message"],
+        signature=fixture["signature"],
+        public_key=fixture["public_key"],
+        expected_address=fixture["address"],
+    )
+
+
+def test_near_invalid_signature():
+    fixture = json.loads((FIXTURES / "near.json").read_text())
+    import base64
+    bad_sig = base64.b64encode(b"\x00" * 64).decode()
+    assert not verify_wallet_signature(
+        chain="near",
+        message=fixture["message"],
+        signature=bad_sig,
+        public_key=fixture["public_key"],
+        expected_address=fixture["address"],
+    )
+
+
+def test_near_wrong_address():
+    fixture = json.loads((FIXTURES / "near.json").read_text())
+    wrong = "ab" * 32
+    assert not verify_wallet_signature(
+        chain="near",
+        message=fixture["message"],
+        signature=fixture["signature"],
+        public_key=fixture["public_key"],
+        expected_address=wrong,
+    )
+
+
+def test_cosmos_valid_signature():
+    fixture = json.loads((FIXTURES / "cosmos.json").read_text())
+    assert verify_wallet_signature(
+        chain="cosmos",
+        message=fixture["message"],
+        signature=fixture["signature"],
+        public_key=fixture["public_key"],
+        expected_address=fixture["address"],
+    )
+
+
+def test_cosmos_invalid_signature():
+    fixture = json.loads((FIXTURES / "cosmos.json").read_text())
+    bad_sig = "0x" + "00" * 65
+    assert not verify_wallet_signature(
+        chain="cosmos",
+        message=fixture["message"],
+        signature=bad_sig,
+        public_key=fixture["public_key"],
+        expected_address=fixture["address"],
+    )
+
+
+def test_cosmos_wrong_address():
+    fixture = json.loads((FIXTURES / "cosmos.json").read_text())
+    wrong = "cosmos1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg"
+    assert not verify_wallet_signature(
+        chain="cosmos",
+        message=fixture["message"],
+        signature=fixture["signature"],
+        public_key=fixture["public_key"],
+        expected_address=wrong,
+    )
+
+
+def test_tron_valid_signature():
+    fixture = json.loads((FIXTURES / "tron.json").read_text())
+    assert verify_wallet_signature(
+        chain="tron",
+        message=fixture["message"],
+        signature=fixture["signature"],
+        public_key=fixture["public_key"],
+        expected_address=fixture["address"],
+    )
+
+
+def test_tron_invalid_signature():
+    fixture = json.loads((FIXTURES / "tron.json").read_text())
+    bad_sig = "0x" + "00" * 65
+    assert not verify_wallet_signature(
+        chain="tron",
+        message=fixture["message"],
+        signature=bad_sig,
+        public_key=fixture["public_key"],
+        expected_address=fixture["address"],
+    )
+
+
+def test_tron_wrong_address():
+    fixture = json.loads((FIXTURES / "tron.json").read_text())
+    wrong = "T" + "9" * 33
+    assert not verify_wallet_signature(
+        chain="tron",
+        message=fixture["message"],
+        signature=fixture["signature"],
+        public_key=fixture["public_key"],
+        expected_address=wrong,
+    )

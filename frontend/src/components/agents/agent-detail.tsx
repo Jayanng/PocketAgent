@@ -11,6 +11,9 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ChainIcon } from "@/components/chains/chain-icon";
 import { FundAgentDialog } from "@/components/agents/fund-agent-dialog";
+import { TokenImportDialog } from "@/components/tokens/token-import-dialog";
+import { TokenPanel } from "@/components/tokens/token-panel";
+import { TokenRotateDialog } from "@/components/tokens/token-rotate-dialog";
 import { canUseProtectedAgentRoutes, isAgentAuthDisabled } from "@/lib/agent-auth";
 import { getAgentAccessToken } from "@/lib/api";
 import type { Agent, AgentBalancesResponse, Conversation } from "@/lib/api";
@@ -35,7 +38,15 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
   const [fundingOpen, setFundingOpen] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [tokenDraft, setTokenDraft] = useState("");
-  const { deleteAgent, importAgentAccessToken, isLoading, loadBalances } = useAgentStore();
+  const [rotateOpen, setRotateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const {
+    deleteAgent,
+    importAgentAccessToken,
+    isLoading,
+    loadBalances,
+    rotateAgentAccessToken,
+  } = useAgentStore();
 
   const hasActiveToken = agent ? Boolean(getAgentAccessToken(agent.id)) : false;
   const canUseProtectedRoutes = canUseProtectedAgentRoutes(agent?.id);
@@ -256,6 +267,45 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
       {hasProtectedDetails && (
         <FundAgentDialog agent={agent} open={fundingOpen && hasProtectedDetails} onClose={() => setFundingOpen(false)} />
       )}
+
+      <div className="mt-4" data-testid="token-panel-section">
+        <TokenPanel
+          agentId={agent.id}
+          agentName={agent.name}
+          onRotate={() => setRotateOpen(true)}
+          onImport={() => setImportOpen(true)}
+          onSignToReissue={() => setImportOpen(true)}
+        />
+      </div>
+
+      <TokenRotateDialog
+        open={rotateOpen}
+        agentId={agent.id}
+        onClose={() => setRotateOpen(false)}
+        onRotated={async (_newToken) => {
+          // After rotation, refresh the selected agent and balances
+          await loadBalances(agent.id);
+        }}
+      />
+
+      <TokenImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => setImportOpen(false)}
+        agentChains={Object.keys(agent.wallet_addresses ?? {})}
+        apiBase=""
+        onRequestChallenge={async () => {
+          const { api } = await import("@/lib/api");
+          return api.agents.reissueChallenge(agent.id);
+        }}
+        onSignMessage={async (_message: string) => {
+          // Wallet-sign integration requires wagmi hooks (out of jsdom test scope).
+          // Real wiring: use useWalletClient().signMessage({ account, message }).
+          throw new Error(
+            "Wallet signing is not wired in this build. Use the paste flow or wire wagmi.",
+          );
+        }}
+      />
     </Card>
   );
 }

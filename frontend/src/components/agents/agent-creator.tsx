@@ -6,6 +6,7 @@ import { Check, Copy, Plus, Search } from "lucide-react";
 
 import { CapabilitySelector } from "@/components/agents/capability-selector";
 import { ChainIcon } from "@/components/chains/chain-icon";
+import { TokenDisplayModal } from "@/components/tokens/token-display-modal";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -65,6 +66,11 @@ export function AgentCreator() {
   const close = () => {
     setOpen(false);
     reset();
+  };
+
+  const handleTokenAcknowledged = () => {
+    // User has saved the token via the modal — clear store state and close.
+    close();
   };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -257,6 +263,15 @@ export function AgentCreator() {
             )}
         </DialogContent>
       </Dialog>
+
+      {createdAccessToken && (
+        <TokenDisplayModal
+          open={!!createdAccessToken}
+          agentName={name || "Agent"}
+          token={createdAccessToken}
+          onAcknowledged={handleTokenAcknowledged}
+        />
+      )}
     </>
   );
 }

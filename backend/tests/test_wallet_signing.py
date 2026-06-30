@@ -39,3 +39,37 @@ def test_evm_wrong_address():
         public_key=None,
         expected_address="0x0000000000000000000000000000000000000000",
     )
+
+
+def test_solana_valid_signature():
+    fixture = json.loads((FIXTURES / "solana.json").read_text())
+    assert verify_wallet_signature(
+        chain="solana",
+        message=fixture["message"],
+        signature=fixture["signature"],
+        public_key=fixture["public_key"],
+        expected_address=fixture["address"],
+    )
+
+
+def test_solana_invalid_signature():
+    fixture = json.loads((FIXTURES / "solana.json").read_text())
+    assert not verify_wallet_signature(
+        chain="solana",
+        message=fixture["message"],
+        signature="1" * 88,
+        public_key=fixture["public_key"],
+        expected_address=fixture["address"],
+    )
+
+
+def test_solana_wrong_address():
+    fixture = json.loads((FIXTURES / "solana.json").read_text())
+    wrong = "11111111111111111111111111111112"
+    assert not verify_wallet_signature(
+        chain="solana",
+        message=fixture["message"],
+        signature=fixture["signature"],
+        public_key=wrong,
+        expected_address=fixture["address"],
+    )

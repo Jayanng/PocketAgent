@@ -189,13 +189,13 @@ Detailed usage documentation can be found in `docs/mcp-server.md`.
 
 ## Testing
 
-PocketAgent ships with **160 automated tests** across two suites:
+PocketAgent ships with **179 automated tests** across two suites:
 
 | Suite | Tests | Tooling | Command |
 | :--- | ---: | :--- | :--- |
 | **Backend** | 135 | pytest 9 · aiosqlite · FastAPI TestClient | `cd backend && .venv\Scripts\pytest.exe -q` |
-| **Frontend** | 25  | Vitest 4 · React Testing Library · jsdom | `cd frontend && node.exe node_modules/vitest/dist/cli.js run` |
-| **Total**  | **160** | | |
+| **Frontend** | 44  | Vitest 4 · React Testing Library · jsdom | `cd frontend && node.exe node_modules/vitest/dist/cli.js run` |
+| **Total**  | **179** | | |
 
 ### Test coverage highlights
 
@@ -203,6 +203,8 @@ PocketAgent ships with **160 automated tests** across two suites:
 * **Per-chain wallet signature verification** — 18 unit tests covering all 6 supported chains (EVM, Solana, Sui, NEAR, Cosmos, TRON) with valid-signature, invalid-signature, and wrong-address vectors per chain.
 * **Token reissue endpoints** — 9 endpoint tests + 1 full lifecycle test covering `current_token` and `wallet_signature` proofs, expired-challenge rejection (422), and wrong-signer rejection (401).
 * **TokenStore** — 8 unit tests covering localStorage persistence, in-memory cache, BroadcastChannel cross-tab sync, listener notifications, and quota-exceeded fallback.
+* **API client reissue methods** — 11 unit tests covering `api.agents.reissue`, `api.agents.reissueChallenge`, and the `get/remember/forget` token helpers' delegation to TokenStore.
+* **Agent store actions** — 8 unit tests covering `rotateAgentAccessToken` (success, no-token error, server error, isRotating state), `exportAllAgentTokens` (download trigger), and `importAgentAccessToken` (success, validation, error capture).
 * **Token UI components** — 17 component tests across `TokenDisplayModal`, `TokenPanel`, `TokenImportDialog`, and `TokenRotateDialog`.
 
 ### Running the suites

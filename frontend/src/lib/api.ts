@@ -1,12 +1,10 @@
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const AGENT_TOKEN_PREFIX = "pocketagent:agent-token:";
-const agentAccessTokens = new Map<string, string>();
-let tokensHydrated = false;
 
 // ─── Protocol grouping (shared across dashboard components) ─────────────────
 import type { ChainProtocol, ChainConfig } from "@/lib/constants";
 import { CHAIN_CONFIGS } from "@/lib/constants";
 import { emitApiError } from "@/lib/toast-events";
+import { tokenStore } from "@/lib/token-store";
 
 /** Fixed display order for the 7 protocol families, biggest first. */
 export const PROTOCOL_ORDER: ChainProtocol[] = ["evm", "cosmos", "solana", "sui", "near", "tron"];
@@ -220,51 +218,43 @@ export type Portfolio = {
   holdings: PortfolioHolding[];
 };
 
-function tokenStorage(): Storage | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const probe = `${AGENT_TOKEN_PREFIX}probe`;
-    window.sessionStorage.setItem(probe, "1");
-    window.sessionStorage.removeItem(probe);
-    return window.sessionStorage;
-  } catch {
-    return null;
-  }
-}
+// ─── Token reissue (current_token + wallet_signature) ───────────────────────
 
-function hydrateAgentAccessTokens(): void {
-  if (tokensHydrated) return;
-  const storage = tokenStorage();
-  if (!storage) return;
-  tokensHydrated = true;
-  for (let index = 0; index < storage.length; index += 1) {
-    const key = storage.key(index);
-    if (!key?.startsWith(AGENT_TOKEN_PREFIX)) continue;
-    const agentId = key.slice(AGENT_TOKEN_PREFIX.length);
-    const token = storage.getItem(key);
-    if (agentId && token) {
-      agentAccessTokens.set(agentId, token);
-    }
-  }
-}
+export type ReissueProof =
+  | { type: "current_token"; token: string }
+  | {
+      type: "wallet_signature";
+      chain: string;
+      message: string;
+      signature: string;
+      public_key: string;
+    };
+
+export type ReissueRequest = { proof: ReissueProof };
+
+export type ReissueChallenge = {
+  message: string;
+  timestamp: number;
+};
+
+export type ReissueResponse = {
+  access_token: string;
+  access_token_created_at?: string;
+  agent?: Agent;
+};
 
 export function getAgentAccessToken(agentId: string): string | null {
-  hydrateAgentAccessTokens();
-  return agentAccessTokens.get(agentId) ?? null;
+  return tokenStore.get(agentId);
 }
 
 export function rememberAgentAccessToken(agentId: string, token: string): void {
-  hydrateAgentAccessTokens();
   const trimmed = token.trim();
   if (!trimmed) return;
-  agentAccessTokens.set(agentId, trimmed);
-  tokenStorage()?.setItem(`${AGENT_TOKEN_PREFIX}${agentId}`, trimmed);
+  tokenStore.set(agentId, trimmed);
 }
 
 export function forgetAgentAccessToken(agentId: string): void {
-  hydrateAgentAccessTokens();
-  agentAccessTokens.delete(agentId);
-  tokenStorage()?.removeItem(`${AGENT_TOKEN_PREFIX}${agentId}`);
+  tokenStore.forget(agentId);
 }
 
 async function request<T>(path: string, init?: RequestInit & { accessToken?: string | null }): Promise<T> {
@@ -376,6 +366,22 @@ export const api = {
         method: "DELETE",
         accessToken: getAgentAccessToken(id),
       });
+    },
+    reissueChallenge(id: string) {
+      return request<ReissueChallenge>(
+        `/api/agents/${encodeURIComponent(id)}/reissue-challenge`,
+        { accessToken: getAgentAccessToken(id) },
+      );
+    },
+    reissue(id: string, body: ReissueRequest) {
+      return request<ReissueResponse>(
+        `/api/agents/${encodeURIComponent(id)}/reissue-token`,
+        {
+          method: "POST",
+          accessToken: getAgentAccessToken(id),
+          body: JSON.stringify(body),
+        },
+      );
     },
   },
   analytics: {

@@ -8,8 +8,8 @@
 
 | Suite | Count | Command |
 |---|---|---|
-| Backend pytest | 135 | `cd backend && .venv\Scripts\pytest.exe -q` |
-| Frontend vitest | 25  | `cd frontend && node.exe node_modules/vitest/dist/cli.js run` |
+| Backend pytest | 138 | `cd backend && .venv\Scripts\pytest.exe -q` |
+| Frontend vitest | 44  | `cd frontend && node.exe node_modules/vitest/dist/cli.js run` |
 
 ## Manual flows
 
@@ -31,8 +31,14 @@
   `onSignMessage` in `agent-detail.tsx` throws "Wallet signing is not wired in this
   build" — wire to `useWalletClient().signMessage({ account, message })` before
   release. The wallet-sign reissue endpoint is fully tested on the backend.
-- **Environment convention test** (`test_env_convention.py`) is excluded from CI runs
-  in this worktree because the root `.env` is gitignored; the original repo passes it.
+- **Environment convention test** (`test_env_convention.py`) enforces that root
+  `.env` only contains `NEXT_PUBLIC_*` keys and includes a
+  `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`. The file is gitignored; create it
+  locally with:
+  ```
+  NEXT_PUBLIC_API_URL=http://localhost:8000
+  NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=pocketagent-local-dev
+  ```
 - **npm install quirk:** vitest was downloaded but bin-symlinks were never created
   in `node_modules/.bin/`. The `test` script invokes vitest via the direct path
   (`node.exe node_modules/vitest/dist/cli.js run`) to avoid this. Long-term fix:

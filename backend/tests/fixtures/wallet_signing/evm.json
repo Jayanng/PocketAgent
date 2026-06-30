@@ -1,0 +1,7 @@
+{
+  "address": "0xDA911D4F4DC15903E51d7abe04edAbb99399ed6E",
+  "private_key": "ba6bc1b2e97052a50b9a678159c8d92c2776b4647499c0ae2fe7822ca246031d",
+  "public_key": null,
+  "message": "pocketagent:reissue:test-agent:1740000000",
+  "signature": "bac6404613aacd1432013aa368590c8ca3159b12105edcff701629c40a856fb31335c6d9b23b7cc7c06e70c2bcacea574cfe591baf948699ed110a4d78a100611b"
+}

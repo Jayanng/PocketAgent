@@ -187,6 +187,41 @@ Detailed usage documentation can be found in `docs/mcp-server.md`.
 
 ---
 
+## Testing
+
+PocketAgent ships with **160 automated tests** across two suites:
+
+| Suite | Tests | Tooling | Command |
+| :--- | ---: | :--- | :--- |
+| **Backend** | 135 | pytest 9 · aiosqlite · FastAPI TestClient | `cd backend && .venv\Scripts\pytest.exe -q` |
+| **Frontend** | 25  | Vitest 4 · React Testing Library · jsdom | `cd frontend && node.exe node_modules/vitest/dist/cli.js run` |
+| **Total**  | **160** | | |
+
+### Test coverage highlights
+
+* **Database migration** — additive `access_token_created_at` / `access_token_revoked_at` columns, idempotent init.
+* **Per-chain wallet signature verification** — 18 unit tests covering all 6 supported chains (EVM, Solana, Sui, NEAR, Cosmos, TRON) with valid-signature, invalid-signature, and wrong-address vectors per chain.
+* **Token reissue endpoints** — 9 endpoint tests + 1 full lifecycle test covering `current_token` and `wallet_signature` proofs, expired-challenge rejection (422), and wrong-signer rejection (401).
+* **TokenStore** — 8 unit tests covering localStorage persistence, in-memory cache, BroadcastChannel cross-tab sync, listener notifications, and quota-exceeded fallback.
+* **Token UI components** — 17 component tests across `TokenDisplayModal`, `TokenPanel`, `TokenImportDialog`, and `TokenRotateDialog`.
+
+### Running the suites
+
+```bash
+# Backend (from repo root)
+cd backend
+set PYTHONPATH=..  # Windows; Linux/macOS: PYTHONPATH=..
+.venv\Scripts\pytest.exe -q
+
+# Frontend (from repo root)
+cd frontend
+node.exe node_modules/vitest/dist/cli.js run
+```
+
+Manual end-to-end flows (multi-tab sync, wallet-sign recovery, race conditions) are documented in `docs/superpowers/plans/2026-06-30-token-ux-qa.md`.
+
+---
+
 ## AI Usage Disclosure
 
 This project was built with assistance from AI coding tools, including **Cursor** (Claude-based agent), **Grok**, and **OpenAI** models for implementation, testing, and documentation. Human developers reviewed and integrated all generated code.

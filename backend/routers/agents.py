@@ -1,5 +1,7 @@
-from typing import Any
+from typing import Any, Literal, Union
 import sqlite3
+import time
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi import Query
 from pydantic import BaseModel, Field
@@ -8,6 +10,11 @@ try:
     from ..database import create_agent, get_agent, get_db, list_agents, update_agent
     from ..models.agent import AgentCreateResponse, AgentDetail, AgentFundResponse, AgentSummary
     from ..services.agent_auth import generate_agent_access_token, hash_agent_access_token, verify_agent_access_token
+    from ..services.agent_token_service import (
+        generate_access_token as generate_new_access_token,
+        hash_access_token,
+        verify_proof,
+    )
     from ..services.pocket_rpc import PocketRPCClient
     from ..services.wallets import (
         create_agent_wallets,
@@ -19,6 +26,11 @@ except ImportError:
     from database import create_agent, get_agent, get_db, list_agents, update_agent
     from models.agent import AgentCreateResponse, AgentDetail, AgentFundResponse, AgentSummary
     from services.agent_auth import generate_agent_access_token, hash_agent_access_token, verify_agent_access_token
+    from services.agent_token_service import (
+        generate_access_token as generate_new_access_token,
+        hash_access_token,
+        verify_proof,
+    )
     from services.pocket_rpc import PocketRPCClient
     from services.wallets import (
         create_agent_wallets,
@@ -44,6 +56,23 @@ class AgentUpdateRequest(BaseModel):
     chains: list[str] | None = None
     capabilities: list[str] | None = None
     spending_cap: float | None = None
+
+
+class CurrentTokenProof(BaseModel):
+    type: Literal["current_token"] = "current_token"
+    token: str
+
+
+class WalletSignatureProof(BaseModel):
+    type: Literal["wallet_signature"] = "wallet_signature"
+    chain: str
+    message: str
+    signature: str
+    public_key: str = ""
+
+
+class ReissueRequest(BaseModel):
+    proof: Union[CurrentTokenProof, WalletSignatureProof] = Field(..., discriminator="type")
 
 
 def _agent_summary(agent: dict[str, Any]) -> dict[str, Any]:
@@ -237,4 +266,79 @@ async def get_agent_balances(
         "wallet_address": agent.get("wallet_address"),
         "wallet_addresses": agent.get("wallet_addresses", {}),
         "balances": balance_entries,
+    }
+
+
+@router.get("/{agent_id}/reissue-challenge")
+async def reissue_challenge(agent_id: str, db=Depends(get_db)) -> dict[str, Any]:
+    """Return the canonical message the user must sign for reissue.
+
+    The challenge is unauthenticated (the user is proving wallet ownership, not
+    token ownership), but we 404 on unknown agents to avoid probing.
+    """
+    agent = await get_agent(db, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not agent.get("is_active", True):
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Agent is inactive")
+    timestamp = int(time.time())
+    message = f"pocketagent:reissue:{agent_id}:{timestamp}"
+    return {"message": message, "timestamp": timestamp}
+
+
+@router.post("/{agent_id}/reissue-token")
+async def reissue_access_token(
+    agent_id: str,
+    body: ReissueRequest,
+    db=Depends(get_db),
+) -> dict[str, Any]:
+    """Issue a new access token, invalidating the old one.
+
+    Two proof types are accepted:
+      - current_token: caller proves they hold the existing token
+      - wallet_signature: caller proves wallet ownership by signing a
+        challenge with the wallet that owns this agent
+    """
+    agent = await get_agent(db, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not agent.get("is_active", True):
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Agent is inactive")
+
+    proof_dict = body.proof.model_dump()
+    if not verify_proof(agent, proof_dict):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid proof")
+
+    # Replay protection for wallet signatures (5 minute window)
+    if body.proof.type == "wallet_signature":
+        try:
+            parts = body.proof.message.split(":")
+            signed_ts = int(parts[-1])
+        except (ValueError, IndexError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Malformed challenge message",
+            )
+        if abs(int(time.time()) - signed_ts) > 300:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Challenge expired; sign a fresh message",
+            )
+
+    new_token = generate_new_access_token()
+    new_hash = hash_access_token(new_token)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await update_agent(
+        db,
+        agent_id,
+        access_token_hash=new_hash,
+        access_token_created_at=now_iso,
+        access_token_revoked_at=None,
+    )
+
+    updated = await get_agent(db, agent_id)
+    return {
+        "access_token": new_token,
+        "access_token_created_at": now_iso,
+        "agent": _agent_detail(updated) if updated else None,
     }

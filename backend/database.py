@@ -225,7 +225,8 @@ async def update_agent(db: aiosqlite.Connection, agent_id: str, **fields) -> dic
     allowed = {
         "name", "description", "chains", "capabilities",
         "wallet_address", "encrypted_wallets", "wallet_addresses",
-        "access_token_hash", "spending_cap", "total_spent",
+        "access_token_hash", "access_token_created_at", "access_token_revoked_at",
+        "spending_cap", "total_spent",
         "total_spent_by_chain", "sui_tracked_coins", "is_active",
     }
     updates = {k: v for k, v in fields.items() if k in allowed}

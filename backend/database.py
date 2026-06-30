@@ -55,6 +55,8 @@ async def init_db() -> None:
         await _ensure_column(db, "agents", "access_token_hash", "TEXT")
         await _ensure_column(db, "agents", "total_spent_by_chain", "TEXT")
         await _ensure_column(db, "agents", "sui_tracked_coins", "TEXT")
+        await _ensure_column(db, "agents", "access_token_created_at", "TEXT")
+        await _ensure_column(db, "agents", "access_token_revoked_at", "TEXT")
 
         # 2. conversations table
         await db.execute("""

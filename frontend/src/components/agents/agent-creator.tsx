@@ -27,7 +27,6 @@ export function AgentCreator() {
   const [capabilities, setCapabilities] = useState<string[]>(["read", "compare"]);
   const [spendingCap, setSpendingCap] = useState("0.1");
   const [chainSearch, setChainSearch] = useState("");
-  const [copied, setCopied] = useState(false);
   const {
     createAgent,
     isCreating,
@@ -59,7 +58,6 @@ export function AgentCreator() {
     setCapabilities(["read", "compare"]);
     setSpendingCap("0.1");
     setChainSearch("");
-    setCopied(false);
     clearCreatedWalletAddress();
   };
 
@@ -84,16 +82,9 @@ export function AgentCreator() {
     });
   };
 
-  const copyWallet = async () => {
-    if (!createdWalletAddress) return;
-    await navigator.clipboard.writeText(createdWalletAddress);
-    setCopied(true);
-  };
-
   const copyAccessToken = async () => {
     if (!createdAccessToken) return;
     await navigator.clipboard.writeText(createdAccessToken);
-    setCopied(true);
   };
 
   return (
@@ -135,7 +126,6 @@ export function AgentCreator() {
                               size="sm"
                               onClick={async () => {
                                 await navigator.clipboard.writeText(address);
-                                setCopied(true);
                               }}
                             >
                               <Copy size={14} />

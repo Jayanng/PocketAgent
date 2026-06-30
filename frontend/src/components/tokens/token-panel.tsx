@@ -23,11 +23,18 @@ export function TokenPanel({
   const [rotatedAt, setRotatedAt] = useState<Date | null>(null);
 
   useEffect(() => {
-    setHasToken(tokenStore.has(agentId));
+    // hasToken is initialized lazily via useState; only the subscription matters here.
     return tokenStore.onChange((e) => {
-      if (e.agentId === agentId) {
-        setHasToken(e.type === "set");
-        if (e.type === "set") setRotatedAt(new Date());
+      if (e.agentId !== agentId) return;
+      setHasToken(e.type === "set");
+      if (e.type === "set") {
+        setRotatedAt(new Date());
+        // Auto-clear the "recently rotated" banner after 5 minutes (pure timer, not render-time).
+        window.setTimeout(() => {
+          setRotatedAt((current) =>
+            current && Date.now() - current.getTime() >= 5 * 60 * 1000 - 1000 ? null : current,
+          );
+        }, 5 * 60 * 1000);
       }
     });
   }, [agentId]);
@@ -76,16 +83,17 @@ export function TokenPanel({
   return (
     <div className="rounded-md border p-3" data-testid="active-panel">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">Access token</span>
+        <span className="text-sm font-medium">
+          Access token{agentName ? ` for ${agentName}` : ""}
+        </span>
         <span className="font-mono text-sm text-gray-500">••••••••</span>
       </div>
-      {rotatedAt &&
-        Date.now() - rotatedAt.getTime() < 5 * 60 * 1000 && (
-          <p className="mt-2 text-xs text-blue-700">
-            Token rotated at {rotatedAt.toLocaleTimeString()}. Old token is
-            now invalid.
-          </p>
-        )}
+      {rotatedAt && (
+        <p className="mt-2 text-xs text-blue-700">
+          Token rotated at {rotatedAt.toLocaleTimeString()}. Old token is now
+          invalid.
+        </p>
+      )}
       <div className="mt-3 flex gap-2">
         <button
           type="button"

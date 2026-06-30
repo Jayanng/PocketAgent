@@ -46,7 +46,6 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
     importAgentAccessToken,
     isLoading,
     loadBalances,
-    rotateAgentAccessToken,
   } = useAgentStore();
 
   // Wallet-signing hooks for the token-reissue flow (EVM only).
@@ -287,8 +286,8 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
         open={rotateOpen}
         agentId={agent.id}
         onClose={() => setRotateOpen(false)}
-        onRotated={async (_newToken) => {
-          // After rotation, refresh the selected agent and balances
+        onRotated={async () => {
+          // After rotation, refresh balances so the new token is exercised.
           await loadBalances(agent.id);
         }}
       />

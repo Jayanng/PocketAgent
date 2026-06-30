@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Copy, ExternalLink, Trash2, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useAccount, useSignMessage } from "wagmi";
 
 import { AgentEditor } from "@/components/agents/agent-editor";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +48,10 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
     loadBalances,
     rotateAgentAccessToken,
   } = useAgentStore();
+
+  // Wallet-signing hooks for the token-reissue flow (EVM only).
+  const { address: connectedAddress, isConnected } = useAccount();
+  const { signMessageAsync } = useSignMessage();
 
   const hasActiveToken = agent ? Boolean(getAgentAccessToken(agent.id)) : false;
   const canUseProtectedRoutes = canUseProtectedAgentRoutes(agent?.id);
@@ -298,12 +303,16 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
           const { api } = await import("@/lib/api");
           return api.agents.reissueChallenge(agent.id);
         }}
-        onSignMessage={async (_message: string) => {
-          // Wallet-sign integration requires wagmi hooks (out of jsdom test scope).
-          // Real wiring: use useWalletClient().signMessage({ account, message }).
-          throw new Error(
-            "Wallet signing is not wired in this build. Use the paste flow or wire wagmi.",
-          );
+        onSignMessage={async (message: string) => {
+          if (!isConnected || !connectedAddress) {
+            throw new Error(
+              "Connect an EVM wallet (e.g. MetaMask) first, then retry.",
+            );
+          }
+          // wagmi's signMessage uses personal_sign (EIP-191), which matches the
+          // backend EVM verifier (eth_account.messages.encode_defunct).
+          const signature = await signMessageAsync({ account: connectedAddress, message });
+          return { signature, publicKey: connectedAddress };
         }}
       />
     </Card>

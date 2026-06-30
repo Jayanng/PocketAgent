@@ -5,6 +5,7 @@ import { create } from "zustand";
 import {
   api,
   forgetAgentAccessToken,
+  getAgentAccessToken,
   rememberAgentAccessToken,
   type Agent,
   type AgentBalancesResponse,

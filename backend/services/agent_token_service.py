@@ -19,16 +19,20 @@ def hash_access_token(token: str) -> str:
 
 
 def _expected_address_for_chain(agent: dict[str, Any], chain: str) -> str | None:
-    """Resolve which address on `agent` should match `chain` for proof."""
+    """Resolve which address on `agent` should match `chain` for proof.
+
+    EVM chains share a single primary wallet_address field; all other
+    protocol families must have an explicit entry in wallet_addresses[chain].
+    Falling back to the EVM address for non-EVM chains would produce false
+    positives (the EVM address is not a valid Solana base58 / Sui blake2b /
+    NEAR hex / TRON base58check address), so we require an exact chain match.
+    """
     addresses = agent.get("wallet_addresses") or {}
     if isinstance(addresses, dict):
         addr = addresses.get(chain)
         if addr:
             return str(addr)
     if chain in EVM_CHAINS and agent.get("wallet_address"):
-        return str(agent["wallet_address"])
-    # Solana/Sui/NEAR/Cosmos/TRON may also live on the primary wallet_address
-    if chain in ("solana", "near", "sui", "tron") and agent.get("wallet_address"):
         return str(agent["wallet_address"])
     return None
 

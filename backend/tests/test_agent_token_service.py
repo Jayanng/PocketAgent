@@ -2,6 +2,7 @@
 from backend.services.agent_token_service import (
     generate_access_token,
     hash_access_token,
+    verify_proof,
 )
 
 
@@ -26,3 +27,114 @@ def test_hash_length_is_sha256_hex():
     h = hash_access_token(tok)
     assert isinstance(h, str)
     assert len(h) == 64
+
+
+# ─── Cross-chain address fallback (regression tests) ────────────────────────
+
+
+def test_verify_proof_wallet_signature_solana_requires_solana_address():
+    """Solana proof must NOT verify against the agent's EVM primary wallet_address.
+
+    The EVM address is not a valid Solana base58 pubkey, so falling back to it
+    would produce false positives or signature verification failures.
+    """
+    agent = {
+        "wallet_address": "0x" + "ab" * 20,  # EVM address only
+        "wallet_addresses": {},  # no solana entry
+    }
+    proof = {
+        "type": "wallet_signature",
+        "chain": "solana",
+        "message": "pocketagent:reissue:test:1",
+        "signature": "1" * 88,  # base58-ish, would fail signature check anyway
+        "public_key": None,
+    }
+    assert verify_proof(agent, proof) is False
+
+
+def test_verify_proof_wallet_signature_near_requires_near_address():
+    """NEAR proof must NOT verify against the EVM wallet_address fallback."""
+    agent = {
+        "wallet_address": "0x" + "ab" * 20,
+        "wallet_addresses": {},
+    }
+    proof = {
+        "type": "wallet_signature",
+        "chain": "near",
+        "message": "pocketagent:reissue:test:1",
+        "signature": "x" * 128,
+        "public_key": "ab" * 32,
+    }
+    assert verify_proof(agent, proof) is False
+
+
+def test_verify_proof_wallet_signature_cosmos_requires_cosmos_address():
+    """Cosmos proof must NOT verify against the EVM wallet_address fallback."""
+    agent = {
+        "wallet_address": "0x" + "ab" * 20,
+        "wallet_addresses": {},
+    }
+    proof = {
+        "type": "wallet_signature",
+        "chain": "cosmos",
+        "message": "pocketagent:reissue:test:1",
+        "signature": "0x" + "00" * 65,
+        "public_key": None,
+    }
+    assert verify_proof(agent, proof) is False
+
+
+def test_verify_proof_wallet_signature_sui_requires_sui_address():
+    """Sui proof must NOT verify against the EVM wallet_address fallback."""
+    agent = {
+        "wallet_address": "0x" + "ab" * 20,
+        "wallet_addresses": {},
+    }
+    proof = {
+        "type": "wallet_signature",
+        "chain": "sui",
+        "message": "pocketagent:reissue:test:1",
+        "signature": "AAAA",  # base64 of zero bytes
+        "public_key": "AAAA",
+    }
+    assert verify_proof(agent, proof) is False
+
+
+def test_verify_proof_wallet_signature_tron_requires_tron_address():
+    """TRON proof must NOT verify against the EVM wallet_address fallback."""
+    agent = {
+        "wallet_address": "0x" + "ab" * 20,
+        "wallet_addresses": {},
+    }
+    proof = {
+        "type": "wallet_signature",
+        "chain": "tron",
+        "message": "pocketagent:reissue:test:1",
+        "signature": "0x" + "00" * 65,
+        "public_key": None,
+    }
+    assert verify_proof(agent, proof) is False
+
+
+def test_verify_proof_wallet_signature_evm_falls_back_to_wallet_address():
+    """EVM chains SHOULD still use wallet_address as the fallback (regression guard)."""
+    # EVM case: wallet_address is the primary; wallet_addresses may not have ethereum.
+    # We craft a proof with a clearly invalid signature so the verifier returns False
+    # via signature check rather than address resolution, confirming we got past
+    # the address-resolution layer.
+    agent = {
+        "wallet_address": "0x" + "ab" * 20,
+        "wallet_addresses": {},
+    }
+    proof = {
+        "type": "wallet_signature",
+        "chain": "ethereum",
+        "message": "pocketagent:reissue:test:1",
+        "signature": "0x" + "00" * 65,
+        "public_key": None,
+    }
+    # Invalid signature → False. The point of this test is that address resolution
+    # DIDN'T short-circuit with None (which would also be False, but for a different
+    # reason). We can't easily distinguish without injecting a mock; instead we
+    # cover the positive case via integration tests in test_reissue_endpoint.py.
+    assert verify_proof(agent, proof) is False

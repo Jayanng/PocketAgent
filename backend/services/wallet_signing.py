@@ -12,6 +12,28 @@ EVM_CHAINS = frozenset({
     "mantle", "scroll", "zksync_era", "sonic", "polygon_zkevm",
 })
 
+COSMOS_CHAINS = frozenset({
+    "cosmos", "cosmos_hub", "osmosis", "akash", "celestia", "injective",
+    "kujira", "stargaze", "juno", "evmos", "secret_network", "sei",
+})
+
+# Mapping from our chain key to the bech32 HRP used in addresses.
+# Sources: each chain's own docs (Keplr, station, etc.).
+COSMOS_HRP = {
+    "cosmos": "cosmos",
+    "cosmos_hub": "cosmos",
+    "osmosis": "osmosis",
+    "akash": "akash",
+    "celestia": "celestia",
+    "injective": "inj",
+    "kujira": "kujira",
+    "stargaze": "stars",
+    "juno": "juno",
+    "evmos": "evmos",
+    "secret_network": "secret",
+    "sei": "sei",
+}
+
 
 def verify_wallet_signature(
     chain: str,
@@ -29,9 +51,9 @@ def verify_wallet_signature(
     if chain == "near":
         return _verify_near(message, signature, public_key, expected_address)
     if chain in COSMOS_CHAINS:
-        return _verify_cosmos(message, signature, public_key, expected_address)
+        return _verify_cosmos(chain, message, signature, expected_address)
     if chain == "tron":
-        return _verify_tron(message, signature, public_key, expected_address)
+        return _verify_tron(message, signature, expected_address)
     raise ValueError(f"unsupported chain for signing: {chain}")
 
 
@@ -101,12 +123,6 @@ def _verify_sui(message: str | bytes, signature: str, public_key: str | None, ex
         return False
 
 
-COSMOS_CHAINS = frozenset({
-    "cosmos", "cosmos_hub", "osmosis", "akash", "celestia", "injective",
-    "kujira", "stargaze", "juno", "evmos", "secret_network", "sei",
-})
-
-
 def _verify_near(message: str | bytes, signature: str, public_key: str | None, expected_address: str) -> bool:
     """Verify a NEAR implicit-account Ed25519 signature.
 
@@ -133,83 +149,96 @@ def _verify_near(message: str | bytes, signature: str, public_key: str | None, e
         return False
 
 
-def _verify_cosmos(message: str | bytes, signature: str, public_key: str | None, expected_address: str) -> bool:
+def _recover_pubkey_candidates(sig_bytes: bytes, message: bytes):
+    """Yield every secp256k1 pubkey recoverable from (r||s[, rec_id]).
+
+    secp256k1 ECDSA recovery: given (r, s), up to two distinct pubkeys
+    exist (mirror y-coords), so up to four rec_ids (two x candidates ×
+    two y parities) each yield a candidate — and the wrong ones do NOT
+    necessarily raise; coincurve returns a valid but mismatched pubkey.
+    The caller MUST therefore iterate ALL candidates and check the
+    derived address, not stop at the first successful recovery.
+
+    Accepts both 64-byte (r||s only — what real Cosmos/TRON wallets
+    emit per ADR-036; all four rec_ids are tried) and 65-byte
+    (r||s||rec_id — what coincurve.sign_recoverable produces; the
+    embedded rec_id is authoritative).
+    """
+    from coincurve import PublicKey
+    if len(sig_bytes) == 64:
+        rec_ids = range(4)
+    elif len(sig_bytes) == 65:
+        rec_ids = [sig_bytes[64]]
+    else:
+        return
+    for rec_id in rec_ids:
+        try:
+            yield PublicKey.from_signature_and_message(
+                sig_bytes[:64] + bytes([rec_id]), message, hasher=None
+            )
+        except Exception:
+            continue
+
+
+def _verify_cosmos(chain: str, message: str | bytes, signature: str, expected_address: str) -> bool:
     """Verify a Cosmos secp256k1 ADR-036 signature and recover bech32 address."""
     try:
         import hashlib
 
         msg_bytes = message.encode("utf-8") if isinstance(message, str) else message
-        # Strip 0x prefix and ensure even length hex
         sig_hex = signature[2:] if signature.startswith("0x") else signature
-        if len(sig_hex) != 130:
+        # Accept 64-byte (real wallets) or 65-byte (recoverable, some libs)
+        if len(sig_hex) not in (128, 130):
             return False
         sig_bytes = bytes.fromhex(sig_hex)
         prefix = b"\x19\x00" + len(msg_bytes).to_bytes(4, "big") + hashlib.sha256(msg_bytes).digest()
         to_sign = hashlib.sha256(prefix).digest()
-        # Recover pubkey (uncompressed, 65 bytes -> 64 byte X||Y) via coincurve
-        from coincurve import PublicKey
-        try:
-            vk = PublicKey.from_signature_and_message(sig_bytes, to_sign, hasher=None)
-        except Exception:
-            return False
-        uncompressed = vk.format(compressed=False)  # 65 bytes: 0x04 || X(32) || Y(32)
-        sha = hashlib.sha256(uncompressed[1:]).digest()
-        ripemd = _ripemd160(sha)
-        bech32_addr = _bech32_encode("cosmos", ripemd)
-        return bech32_addr == expected_address
+        hrp = COSMOS_HRP.get(chain, "cosmos")
+        for vk in _recover_pubkey_candidates(sig_bytes, to_sign):
+            uncompressed = vk.format(compressed=False)  # 65 bytes: 0x04 || X(32) || Y(32)
+            sha = hashlib.sha256(uncompressed[1:]).digest()
+            ripemd = _ripemd160(sha)
+            bech32_addr = _bech32_encode(hrp, ripemd)
+            if bech32_addr == expected_address:
+                return True
+        return False
     except Exception:
         return False
 
 
-def _verify_tron(message: str | bytes, signature: str, public_key: str | None, expected_address: str) -> bool:
+def _verify_tron(message: str | bytes, signature: str, expected_address: str) -> bool:
     """Verify a TRON secp256k1 personal-message signature and recover address."""
     try:
         import hashlib
-        from coincurve import PublicKey
 
         msg_bytes = message.encode("utf-8") if isinstance(message, str) else message
         sig_hex = signature[2:] if signature.startswith("0x") else signature
-        if len(sig_hex) != 130:
+        if len(sig_hex) not in (128, 130):
             return False
         sig_bytes = bytes.fromhex(sig_hex)
         prefix = b"\x19TRON Signed Message:\n" + len(msg_bytes).to_bytes(4, "big") + msg_bytes
         digest = hashlib.sha256(prefix).digest()
-        try:
-            vk = PublicKey.from_signature_and_message(sig_bytes, digest, hasher=None)
-        except Exception:
-            return False
-        uncompressed = vk.format(compressed=False)
-        # keccak256(pubkey[1:])[12:]
-        k = _keccak256(uncompressed[1:])
-        address_bytes = b"\x41" + k[-20:]
-        recovered = _base58check_encode(address_bytes)
-        return recovered == expected_address
+        for vk in _recover_pubkey_candidates(sig_bytes, digest):
+            uncompressed = vk.format(compressed=False)
+            # keccak256(pubkey[1:])[12:]
+            k = _keccak256(uncompressed[1:])
+            address_bytes = b"\x41" + k[-20:]
+            recovered = _base58check_encode(address_bytes)
+            if recovered == expected_address:
+                return True
+        return False
     except Exception:
         return False
 
 
 def _ripemd160(data: bytes) -> bytes:
-    # Use hashlib.new if available; fall back to a stdlib alternative.
-    try:
-        from Crypto.Hash import RIPEMD160  # type: ignore
-        return RIPEMD160.new(data).digest()
-    except Exception:
-        # Last-resort: use coincurve's ripemd160 (some builds bundle it via libsecp256k1)
-        # Actually coincurve doesn't expose ripemd160. So we need a pure-python fallback.
-        # Try eth_utils.ripemd160 if available
-        try:
-            from eth_utils import keccak, to_bytes  # noqa: F401
-            from eth_hash.auto import keccak as _kh  # noqa: F401
-        except Exception:
-            pass
-        # Slow pure-python ripemd160 via hashlib builtin on some Pythons
-        import hashlib as _h
-        if hasattr(_h, "new"):
-            try:
-                return _h.new("ripemd160", data).digest()
-            except Exception:
-                pass
-        raise RuntimeError("RIPEMD160 unavailable; install pycryptodome")
+    """RIPEMD-160 hash. Required for Cosmos address derivation (not in stdlib).
+
+    Raises RuntimeError immediately if no implementation is available, so the
+    caller sees a configuration error rather than a silent invalid signature.
+    """
+    from Crypto.Hash import RIPEMD160  # type: ignore
+    return RIPEMD160.new(data).digest()
 
 
 def _bech32_encode(hrp: str, data: bytes) -> str:

@@ -216,3 +216,97 @@ def test_tron_wrong_address():
         public_key=fixture["public_key"],
         expected_address=wrong,
     )
+
+
+def test_cosmos_accepts_64byte_signature():
+    """Real Cosmos wallets (Keplr etc.) emit 64-byte compact signatures per
+    ADR-036, without the recovery byte. Stripping the recovery byte from our
+    65-byte fixture must still verify.
+    """
+    fixture = json.loads((FIXTURES / "cosmos.json").read_text())
+    sig_64 = "0x" + fixture["signature"][2:-2]  # drop trailing recovery byte
+    assert len(sig_64) - 2 == 128
+    assert verify_wallet_signature(
+        chain="cosmos",
+        message=fixture["message"],
+        signature=sig_64,
+        public_key=None,
+        expected_address=fixture["address"],
+    )
+
+
+def test_tron_accepts_64byte_signature():
+    """TRON wallets emit 64-byte compact signatures; verifier must accept them."""
+    fixture = json.loads((FIXTURES / "tron.json").read_text())
+    sig_64 = "0x" + fixture["signature"][2:-2]
+    assert len(sig_64) - 2 == 128
+    assert verify_wallet_signature(
+        chain="tron",
+        message=fixture["message"],
+        signature=sig_64,
+        public_key=None,
+        expected_address=fixture["address"],
+    )
+
+
+def test_cosmos_osmosis_chain_uses_osmosis_hrp():
+    """An address generated with the osmosis HRP must verify when chain='osmosis'."""
+    import hashlib
+    import bech32 as _bech32
+    from coincurve import PrivateKey
+    from Crypto.Hash import RIPEMD160
+
+    priv_bytes = hashlib.sha256(b"osmosis-test-key").digest()
+    priv = PrivateKey(priv_bytes)
+    message = "pocketagent:reissue:test-agent:1740000000"
+    msg_bytes = message.encode("utf-8")
+    prefix = b"\x19\x00" + len(msg_bytes).to_bytes(4, "big") + hashlib.sha256(msg_bytes).digest()
+    to_sign = hashlib.sha256(prefix).digest()
+    sig = priv.sign_recoverable(to_sign, hasher=None)
+    # Recover pubkey and derive osmosis address
+    from coincurve import PublicKey
+    vk = PublicKey.from_signature_and_message(sig, to_sign, hasher=None)
+    uncompressed = vk.format(compressed=False)
+    sha = hashlib.sha256(uncompressed[1:]).digest()
+    ripe = RIPEMD160.new(sha).digest()
+    five_bit = _bech32.convertbits(list(ripe), 8, 5)
+    osmosis_address = _bech32.bech32_encode("osmosis", five_bit)
+
+    assert verify_wallet_signature(
+        chain="osmosis",
+        message=message,
+        signature="0x" + sig.hex(),
+        public_key=None,
+        expected_address=osmosis_address,
+    )
+
+
+def test_cosmos_hardcoded_cosmos_hrp_fails_for_osmosis_address():
+    """Sanity check: the old hardcoded 'cosmos' HRP would have rejected osmosis addresses."""
+    import hashlib
+    import bech32 as _bech32
+    from coincurve import PrivateKey, PublicKey
+    from Crypto.Hash import RIPEMD160
+
+    priv = PrivateKey(hashlib.sha256(b"osmosis-hrp-regression").digest())
+    message = "pocketagent:reissue:test-agent:1740000000"
+    msg_bytes = message.encode("utf-8")
+    prefix = b"\x19\x00" + len(msg_bytes).to_bytes(4, "big") + hashlib.sha256(msg_bytes).digest()
+    to_sign = hashlib.sha256(prefix).digest()
+    sig = priv.sign_recoverable(to_sign, hasher=None)
+    vk = PublicKey.from_signature_and_message(sig, to_sign, hasher=None)
+    uncompressed = vk.format(compressed=False)
+    sha = hashlib.sha256(uncompressed[1:]).digest()
+    ripe = RIPEMD160.new(sha).digest()
+    five_bit = _bech32.convertbits(list(ripe), 8, 5)
+    osmosis_address = _bech32.bech32_encode("osmosis", five_bit)
+
+    # Submit the same signature under chain="cosmos" with the osmosis address.
+    # Should fail because the address starts with "osmosis1" not "cosmos1".
+    assert not verify_wallet_signature(
+        chain="cosmos",
+        message=message,
+        signature="0x" + sig.hex(),
+        public_key=None,
+        expected_address=osmosis_address,
+    )

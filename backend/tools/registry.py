@@ -18,6 +18,7 @@ class ToolContext:
     rpc_client: Any
     relay_tracker: Any
     db: Any | None = None
+    conversation_id: str | None = None
 
 
 @dataclass(frozen=True)

@@ -54,6 +54,58 @@ const inferChains = (calls: ChainCall[]): string[] => {
   return Array.from(values);
 };
 
+// Singleton EventSource per conversation. Re-subscribing to the same
+// conversation is a no-op so React StrictMode double-mounts don't open
+// duplicate streams.
+let activeStream: { conversationId: string; source: EventSource } | null = null;
+
+const openStream = (conversationId: string, accessToken: string | null) => {
+  if (typeof window === "undefined") return;
+  if (activeStream?.conversationId === conversationId) return;
+  closeStream();
+  const params = new URLSearchParams();
+  if (accessToken) params.set("access_token", accessToken);
+  const query = params.toString();
+  const url = `/api/conversations/${encodeURIComponent(conversationId)}/stream${query ? `?${query}` : ""}`;
+  const source = new EventSource(url);
+  source.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      if (payload?.type === "tx_confirmation" && payload.message) {
+        const incoming = payload.message as ChatMessage;
+        useChatStore.setState((current) => {
+          if (current.currentConversationId !== conversationId) return current;
+          // De-dupe by created_at + role so a retried event doesn't append twice.
+          const exists = current.messages.some(
+            (m) => m.role === incoming.role && m.content === incoming.content && m.created_at === incoming.created_at,
+          );
+          if (exists) return current;
+          return { messages: [...current.messages, clientMessage(incoming)] };
+        });
+      }
+    } catch {
+      // ignore malformed events; the heartbeat ping keeps the connection open.
+    }
+  };
+  source.onerror = () => {
+    // Browser auto-reconnects EventSource on transient errors; if the close
+    // was intentional, clear the singleton so we don't keep a stale handle.
+    if (source.readyState === EventSource.CLOSED) {
+      closeStream();
+    }
+  };
+  activeStream = { conversationId, source };
+};
+
+const closeStream = () => {
+  if (activeStream) {
+    activeStream.source.close();
+    activeStream = null;
+  }
+};
+
+export const teardownConversationStream = closeStream;
+
 export const useChatStore = create<ChatState>((set, get) => ({
   currentConversationId: null,
   messages: [],
@@ -123,11 +175,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
       const chains = inferChains(response.chain_calls);
       await refreshConversations();
+      const token = getAgentAccessToken(selectedAgentId);
       set((current) => ({
         currentConversationId: response.conversation_id,
         messages: [...current.messages, assistantMessage],
         activeChains: chains.length ? chains : current.activeChains,
       }));
+      // Open the live stream for the new/updated conversation so any
+      // background tx confirmations flow in automatically.
+      openStream(response.conversation_id, token);
     } catch (error) {
       set((current) => ({
         error: error instanceof Error ? error.message : "Message failed.",
@@ -151,6 +207,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages: normalized,
         activeChains: lastAssistant ? inferChains(lastAssistant.chain_calls) : [],
       });
+      openStream(id, token);
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Unable to load messages.",
@@ -161,6 +218,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   createNewChat() {
+    closeStream();
     set({
       currentConversationId: null,
       messages: [],
@@ -176,6 +234,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       await api.chat.deleteConversation(id, token);
       if (get().currentConversationId === id) {
+        closeStream();
         get().createNewChat();
       }
       await useAgentStore.getState().refreshConversations();

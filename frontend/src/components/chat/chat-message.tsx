@@ -121,6 +121,57 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
+function ConfirmationBadge({
+  chainCalls,
+}: {
+  chainCalls?: Array<{ tool?: string; result?: Record<string, unknown> }>;
+}) {
+  const call = chainCalls?.find((c) => c.tool === "tx_confirmation");
+  if (!call || !call.result) return null;
+  const result = call.result as {
+    status?: string;
+    explorer_url?: string;
+    tx_hash?: string;
+    chain?: string;
+  };
+  const status = result.status;
+  if (!status) return null;
+  const palette: Record<string, string> = {
+    confirmed: "border-green-500/40 bg-green-500/10 text-green-400",
+    reverted: "border-red-500/40 bg-red-500/10 text-red-400",
+    pending_timeout: "border-yellow-500/40 bg-yellow-500/10 text-yellow-400",
+  };
+  const label: Record<string, string> = {
+    confirmed: "✅ Confirmed",
+    reverted: "❌ Reverted",
+    pending_timeout: "⏳ Pending",
+  };
+  const tone = palette[status] ?? "border-border/40 bg-muted/20 text-muted-foreground/80";
+  const text = label[status] ?? status;
+  const className = `inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider shadow-sm hover:underline ${tone}`;
+  if (result.explorer_url) {
+    return (
+      <a
+        href={result.explorer_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={className}
+        title={result.tx_hash ?? result.chain ?? ""}
+      >
+        {text} ↗
+      </a>
+    );
+  }
+  return (
+    <span
+      className={className.replace("hover:underline", "")}
+      title={result.tx_hash ?? result.chain ?? ""}
+    >
+      {text}
+    </span>
+  );
+}
+
 export function ChatMessage({ message, loading = false }: ChatMessageProps) {
   const isUser = message?.role === "user";
   const chains = message ? chainNamesFromCalls(message.chain_calls) : [];
@@ -181,6 +232,7 @@ export function ChatMessage({ message, loading = false }: ChatMessageProps) {
                 {message.tokens_used.toLocaleString()} tokens
               </span>
             ) : null}
+            <ConfirmationBadge chainCalls={message.chain_calls} />
           </div>
         )}
       </div>

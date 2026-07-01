@@ -1,7 +1,10 @@
 from typing import Any
+import asyncio
+import json
 import sqlite3
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from openai import OpenAIError
 
 try:
@@ -16,6 +19,7 @@ try:
     from ..models.chat import ChatAPIResponse, ConversationMessageResponse, ConversationSummary, ChatRequest
     from ..services.agent_auth import verify_agent_access_token
     from ..services.ai_agent import AIAgentService
+    from ..services.confirmation import BROKER as CONFIRMATION_BROKER
 except ImportError:
     from database import (
         delete_conversation,
@@ -28,6 +32,7 @@ except ImportError:
     from models.chat import ChatAPIResponse, ConversationMessageResponse, ConversationSummary, ChatRequest
     from services.agent_auth import verify_agent_access_token
     from services.ai_agent import AIAgentService
+    from services.confirmation import BROKER as CONFIRMATION_BROKER
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -186,3 +191,69 @@ async def remove_conversation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found",
         )
+
+
+@router.get("/conversations/{conversation_id}/stream")
+async def conversation_stream(
+    conversation_id: str,
+    request: Request,
+    access_token: str | None = Header(None, alias="X-Agent-Access-Token"),
+    token: str | None = Query(None, alias="access_token"),
+    db=Depends(get_db),
+) -> StreamingResponse:
+    """Server-Sent Events stream for a conversation.
+
+    Emits a ``ping`` event on connect, then a ``tx_confirmation`` event for each
+    new on-chain confirmation message written by the background polling
+    service. Stays open until the client disconnects.
+
+    ``EventSource`` cannot set custom headers, so ``access_token`` is also
+    accepted as a query parameter as a fallback for browser clients. Prefer
+    the ``X-Agent-Access-Token`` header in non-browser contexts.
+    """
+    # Query param is for browser EventSource; header takes precedence.
+    effective_token = access_token or token
+    conversation = await get_conversation(db, conversation_id)
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+    agent = await get_agent(db, conversation["agent_id"])
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    _require_agent_access(agent, effective_token)
+
+    subscriber = await CONFIRMATION_BROKER.subscribe(conversation_id)
+
+    async def event_generator() -> Any:
+        try:
+            # Initial ping so the client knows the stream is live.
+            yield _format_sse({"type": "ping", "conversation_id": conversation_id})
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(subscriber.queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    # Heartbeat keeps proxies from idling the connection out.
+                    yield _format_sse({"type": "ping", "conversation_id": conversation_id})
+                    continue
+                yield _format_sse(event)
+        finally:
+            await CONFIRMATION_BROKER.unsubscribe(subscriber)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disable nginx buffering if proxied
+            "Connection": "keep-alive",
+        },
+    )
+
+
+def _format_sse(payload: dict[str, Any]) -> str:
+    """Serialize a dict as an SSE ``data:`` frame."""
+    return f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"

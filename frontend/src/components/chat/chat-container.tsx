@@ -13,7 +13,7 @@ import { ChatMessage } from "@/components/chat/chat-message";
 import { ChatSidebar } from "@/components/chat/chat-sidebar";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useChatStore } from "@/store/chat-store";
+import { useChatStore, teardownConversationStream } from "@/store/chat-store";
 import { useAgentStore } from "@/store/agent-store";
 
 const QUICK_PROMPTS = [
@@ -56,6 +56,10 @@ export function ChatContainer() {
   useEffect(() => {
     void initialize();
   }, [initialize]);
+
+  // Tear down the conversation SSE stream when the chat page unmounts so we
+  // don't leak an open EventSource if the user navigates away mid-confirmation.
+  useEffect(() => () => teardownConversationStream(), []);
 
   useEffect(() => {
     if (

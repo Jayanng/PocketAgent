@@ -95,6 +95,7 @@ class AIAgentService:
                     raise LookupError(f"Conversation not found: {conversation_id}")
                 if conversation.get("agent_id") != agent_id:
                     raise PermissionError("Conversation does not belong to this agent.")
+            self._active_conversation_id = conversation_id
 
             if not self.api_key:
                 raise RuntimeError("GMI_API_KEY or OPENAI_API_KEY is not configured.")
@@ -212,7 +213,17 @@ class AIAgentService:
             "- Track Pocket relay usage statistics\n\n"
             "Always specify which chain(s) you queried. When user asks for balance "
             "without chain context, prefer all chains the agent has access to. "
-            "Format blockchain data clearly with chain names, symbols, and USD values when available."
+            "Format blockchain data clearly with chain names, symbols, and USD values when available.\n\n"
+            "Transaction confirmation flow: when a transaction tool returns "
+            "``status: 'broadcast'`` (with a ``tx_hash``), the transaction has been "
+            "submitted to the network's mempool but has not yet been included in a "
+            "block. Tell the user the transaction is broadcasting and that an "
+            "on-chain confirmation message will arrive in the chat automatically "
+            "within ~30 seconds. Do NOT claim the transfer is complete, do NOT "
+            "estimate finality yourself, and do NOT tell the user to ask again — "
+            "the confirmation message is already being polled in the background. "
+            "Include the ``tx_hash`` and, if present in the tool result, the "
+            "block explorer URL the user can open right now to watch progress."
         )
 
     def get_tool_definitions(self, agent: dict[str, Any]) -> list[dict[str, Any]]:
@@ -238,6 +249,7 @@ class AIAgentService:
             rpc_client=self.rpc_client,
             relay_tracker=self.relay_tracker,
             db=getattr(self, "_active_db", None),
+            conversation_id=getattr(self, "_active_conversation_id", None),
         )
         return await execute_tool(tool_name, context, args)
 

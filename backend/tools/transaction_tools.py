@@ -13,10 +13,14 @@ try:
     from ..database import update_agent
     from ..services.encryption import decrypt_private_key
     from .registry import ToolContext, function_schema, register_tool, validate_chain_allowed
+    from ..config import get_settings
+    from ..services.confirmation import ConfirmationService
 except ImportError:
     from database import update_agent
     from services.encryption import decrypt_private_key
     from tools.registry import ToolContext, function_schema, register_tool, validate_chain_allowed
+    from config import get_settings
+    from services.confirmation import ConfirmationService
 
 
 ERC20_TRANSFER_SELECTOR = "a9059cbb"
@@ -28,6 +32,38 @@ def _native_to_wei(amount: str | int | float | Decimal, decimals: int = 18) -> i
 
 def _wei_to_native(amount_wei: int) -> Decimal:
     return Decimal(amount_wei) / (Decimal(10) ** 18)
+
+
+def _schedule_confirmation(
+    context: ToolContext,
+    chain: str,
+    tx_hash: str,
+    *,
+    tool_name: str,
+    original_tool_args: dict[str, Any] | None,
+    sender_account_id: str | None = None,
+) -> None:
+    """Spawn a background task that polls for the tx receipt and writes a
+    follow-up message into the active conversation. No-op if we don't have
+    enough context (no conversation_id, no DB path, etc.).
+    """
+    if not context.conversation_id:
+        return
+    try:
+        db_path = get_settings().database_path
+    except Exception:
+        return
+    agent_id = context.agent.get("id")
+    ConfirmationService().schedule(
+        chain=chain,
+        tx_hash=tx_hash,
+        conversation_id=context.conversation_id,
+        db_path=db_path,
+        agent_id=str(agent_id) if agent_id else None,
+        sender_account_id=sender_account_id,
+        tool_name=tool_name,
+        original_tool_args=original_tool_args,
+    )
 
 
 def _require_protocol_private_key(context: ToolContext, protocol: str) -> str:
@@ -178,6 +214,9 @@ async def _sign_and_send_evm_transaction(
     chain: str,
     tx: dict[str, Any],
     amount_for_cap: Decimal = Decimal("0"),
+    *,
+    tool_name: str = "send_transaction",
+    original_tool_args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     private_key = _require_protocol_private_key(context, "evm")
     account = Account.from_key(private_key)
@@ -207,7 +246,16 @@ async def _sign_and_send_evm_transaction(
     tx_hash = await context.rpc_client.send_raw_transaction(chain, raw_transaction.hex())
     if native_spend_for_cap > 0:
         await _record_native_spend(context, chain, native_spend_for_cap)
+
+    _schedule_confirmation(
+        context,
+        chain,
+        tx_hash,
+        tool_name=tool_name,
+        original_tool_args=original_tool_args,
+    )
     return {
+        "status": "broadcast",
         "chain": chain,
         "protocol": "evm",
         "from": account.address,
@@ -215,6 +263,7 @@ async def _sign_and_send_evm_transaction(
         "gas": tx_payload["gas"],
         "gas_price_wei": gas_price_wei,
         "cap_spend_native": str(native_spend_for_cap),
+        "confirmation": "pending",
     }
 
 
@@ -224,6 +273,9 @@ async def _sign_and_send_solana_transaction(
     to_address: str,
     lamports: int,
     amount_for_cap: Decimal = Decimal("0"),
+    *,
+    tool_name: str = "send_transaction",
+    original_tool_args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from solders.hash import Hash
     from solders.keypair import Keypair
@@ -265,12 +317,22 @@ async def _sign_and_send_solana_transaction(
         raise RuntimeError(f"Unexpected Solana sendTransaction response: {signature}")
     if amount_for_cap > 0:
         await _record_native_spend(context, chain, amount_for_cap)
+
+    _schedule_confirmation(
+        context,
+        chain,
+        signature,
+        tool_name=tool_name,
+        original_tool_args=original_tool_args,
+    )
     return {
+        "status": "broadcast",
         "chain": chain,
         "protocol": "solana",
         "from": str(from_pubkey),
         "tx_hash": signature,
         "lamports": lamports,
+        "confirmation": "pending",
     }
 
 
@@ -280,6 +342,9 @@ async def _sign_and_send_cosmos_transaction(
     to_address: str,
     amount_base: int,
     amount_for_cap: Decimal = Decimal("0"),
+    *,
+    tool_name: str = "send_transaction",
+    original_tool_args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     private_key = _require_protocol_private_key(context, "cosmos")
     if amount_for_cap > 0:
@@ -313,13 +378,23 @@ async def _sign_and_send_cosmos_transaction(
     )
     if amount_for_cap > 0:
         await _record_native_spend(context, chain, amount_for_cap)
+
+    _schedule_confirmation(
+        context,
+        chain,
+        result["tx_hash"],
+        tool_name=tool_name,
+        original_tool_args=original_tool_args,
+    )
     return {
+        "status": "broadcast",
         "chain": chain,
         "protocol": "cosmos",
         "from": result["from"],
         "tx_hash": result["tx_hash"],
         "amount_base": result["amount_base"],
         "denom": result["denom"],
+        "confirmation": "pending",
     }
 
 
@@ -329,6 +404,9 @@ async def _sign_and_send_near_transaction(
     to_address: str,
     amount_yocto: int,
     amount_for_cap: Decimal = Decimal("0"),
+    *,
+    tool_name: str = "send_transaction",
+    original_tool_args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     private_key = _require_protocol_private_key(context, "near")
     if amount_for_cap > 0:
@@ -361,12 +439,23 @@ async def _sign_and_send_near_transaction(
     )
     if amount_for_cap > 0:
         await _record_native_spend(context, chain, amount_for_cap)
+
+    _schedule_confirmation(
+        context,
+        chain,
+        result["tx_hash"],
+        tool_name=tool_name,
+        original_tool_args=original_tool_args,
+        sender_account_id=str(account_id),
+    )
     return {
+        "status": "broadcast",
         "chain": chain,
         "protocol": "near",
         "from": result["from"],
         "tx_hash": result["tx_hash"],
         "amount_yocto": result["amount_yocto"],
+        "confirmation": "pending",
     }
 
 
@@ -376,6 +465,9 @@ async def _sign_and_send_sui_transaction(
     to_address: str,
     amount_mist: int,
     amount_for_cap: Decimal = Decimal("0"),
+    *,
+    tool_name: str = "send_transaction",
+    original_tool_args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         from ..services.sui_transfer import execute_sui_native_transfer, sui_write_rpc_url
@@ -416,12 +508,23 @@ async def _sign_and_send_sui_transaction(
         context.agent["sui_tracked_coins"] = result["tracked_coins"]
     if amount_for_cap > 0:
         await _record_native_spend(context, chain, amount_for_cap)
+
+    _schedule_confirmation(
+        context,
+        chain,
+        result["tx_hash"],
+        tool_name=tool_name,
+        original_tool_args=original_tool_args,
+        sender_account_id=str(sender) if sender else None,
+    )
     return {
+        "status": "broadcast",
         "chain": chain,
         "protocol": "sui",
         "from": result["from"],
         "tx_hash": result["tx_hash"],
         "amount_mist": result["amount_mist"],
+        "confirmation": "pending",
     }
 
 
@@ -431,6 +534,9 @@ async def _sign_and_send_tron_transaction(
     to_address: str,
     amount_sun: int,
     amount_for_cap: Decimal = Decimal("0"),
+    *,
+    tool_name: str = "send_transaction",
+    original_tool_args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from tronpy.keys import PrivateKey
 
@@ -463,12 +569,22 @@ async def _sign_and_send_tron_transaction(
     tx_hash = str(broadcast.get("txid") or unsigned["txID"])
     if amount_for_cap > 0:
         await _record_native_spend(context, chain, amount_for_cap)
+
+    _schedule_confirmation(
+        context,
+        chain,
+        tx_hash,
+        tool_name=tool_name,
+        original_tool_args=original_tool_args,
+    )
     return {
+        "status": "broadcast",
         "chain": chain,
         "protocol": "tron",
         "from": from_address,
         "tx_hash": tx_hash,
         "amount_sun": amount_sun,
+        "confirmation": "pending",
     }
 
 
@@ -554,16 +670,28 @@ async def send_transaction(context: ToolContext, args: dict[str, Any]) -> dict[s
             "to": to_address,
             "value": _native_to_wei(amount_native),
         }
-        return await _sign_and_send_evm_transaction(context, chain, tx, amount_native)
+        return await _sign_and_send_evm_transaction(
+            context, chain, tx, amount_native,
+            tool_name="send_transaction", original_tool_args=args,
+        )
     if protocol == "solana":
         lamports = int(amount_native * (Decimal(10) ** 9))
-        return await _sign_and_send_solana_transaction(context, chain, to_address, lamports, amount_native)
+        return await _sign_and_send_solana_transaction(
+            context, chain, to_address, lamports, amount_native,
+            tool_name="send_transaction", original_tool_args=args,
+        )
     if protocol == "tron":
         amount_sun = int(amount_native * (Decimal(10) ** 6))
-        return await _sign_and_send_tron_transaction(context, chain, to_address, amount_sun, amount_native)
+        return await _sign_and_send_tron_transaction(
+            context, chain, to_address, amount_sun, amount_native,
+            tool_name="send_transaction", original_tool_args=args,
+        )
     if protocol == "sui":
         amount_mist = int(amount_native * (Decimal(10) ** 9))
-        return await _sign_and_send_sui_transaction(context, chain, to_address, amount_mist, amount_native)
+        return await _sign_and_send_sui_transaction(
+            context, chain, to_address, amount_mist, amount_native,
+            tool_name="send_transaction", original_tool_args=args,
+        )
     if protocol == "cosmos":
         try:
             from ..services.chain_registry import get_chain_metadata
@@ -571,10 +699,16 @@ async def send_transaction(context: ToolContext, args: dict[str, Any]) -> dict[s
             from backend.services.chain_registry import get_chain_metadata
         decimals = int(get_chain_metadata(chain)["decimals"])
         amount_base = int(amount_native * (Decimal(10) ** decimals))
-        return await _sign_and_send_cosmos_transaction(context, chain, to_address, amount_base, amount_native)
+        return await _sign_and_send_cosmos_transaction(
+            context, chain, to_address, amount_base, amount_native,
+            tool_name="send_transaction", original_tool_args=args,
+        )
     if protocol == "near":
         amount_yocto = int(amount_native * (Decimal(10) ** 24))
-        return await _sign_and_send_near_transaction(context, chain, to_address, amount_yocto, amount_native)
+        return await _sign_and_send_near_transaction(
+            context, chain, to_address, amount_yocto, amount_native,
+            tool_name="send_transaction", original_tool_args=args,
+        )
     return _unsupported_write_deferred(protocol, chain)
 
 
@@ -592,7 +726,10 @@ async def send_erc20(context: ToolContext, args: dict[str, Any]) -> dict[str, An
         "value": 0,
         "data": data,
     }
-    return await _sign_and_send_evm_transaction(context, chain, tx)
+    return await _sign_and_send_evm_transaction(
+        context, chain, tx,
+        tool_name="send_erc20", original_tool_args=args,
+    )
 
 
 async def contract_call(context: ToolContext, args: dict[str, Any]) -> Any:
@@ -615,7 +752,10 @@ async def contract_call(context: ToolContext, args: dict[str, Any]) -> Any:
         "value": _native_to_wei(value_native),
         "data": data,
     }
-    return await _sign_and_send_evm_transaction(context, chain, tx, value_native)
+    return await _sign_and_send_evm_transaction(
+        context, chain, tx, value_native,
+        tool_name="contract_call", original_tool_args=args,
+    )
 
 
 READ_TOOLS = [

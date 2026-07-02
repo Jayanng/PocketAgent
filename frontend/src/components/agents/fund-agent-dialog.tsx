@@ -3,13 +3,14 @@
 import { useMemo, useState } from "react";
 import { AlertCircle, Check, Copy, ExternalLink, Wallet } from "lucide-react";
 import { useAccount, useSendTransaction, useSwitchChain } from "wagmi";
-import { parseEther } from "viem";
+import { parseEther, UserRejectedRequestError } from "viem";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { CHAIN_CONFIGS, type ChainKey } from "@/lib/constants";
+import { useToast } from "@/components/ui/toast";
+import { CHAIN_CONFIGS, formatChainInError, type ChainKey } from "@/lib/constants";
 import type { Agent } from "@/lib/api";
 
 type FundAgentDialogProps = {
@@ -58,6 +59,8 @@ export function FundAgentDialog({ agent, open, onClose }: FundAgentDialogProps) 
     setCopied(true);
   };
 
+  const { addToast } = useToast();
+
   const sendFromConnected = async () => {
     if (!sendTransactionAsync || !walletAddress || !evmChainId) return;
     // If the connected wallet is on a different chain, switch first so the
@@ -67,11 +70,19 @@ export function FundAgentDialog({ agent, open, onClose }: FundAgentDialogProps) 
     } catch {
       // User may decline the switch — let sendTransactionAsync surface the error.
     }
-    await sendTransactionAsync({
-      to: walletAddress as `0x${string}`,
-      value: parseEther(amount || "0"),
-      chainId: evmChainId,
-    });
+    try {
+      await sendTransactionAsync({
+        to: walletAddress as `0x${string}`,
+        value: parseEther(amount || "0"),
+        chainId: evmChainId,
+      });
+    } catch (err) {
+      if (err instanceof UserRejectedRequestError) {
+        addToast({ type: "info", message: "Transaction cancelled" });
+        return;
+      }
+      throw err; // Re-throw so wagmi's error state catches it for inline display.
+    }
   };
 
   return (
@@ -185,10 +196,10 @@ export function FundAgentDialog({ agent, open, onClose }: FundAgentDialogProps) 
                     )}
                   </div>
                 )}
-                {sendError && (
+                {sendError && !(sendError instanceof UserRejectedRequestError) && (
                   <div className="flex items-start gap-2 text-xs text-red-600">
                     <AlertCircle className="mt-0.5 shrink-0" size={14} />
-                    <span className="break-words">{sendError.message}</span>
+                    <span className="break-words">{formatChainInError(sendError.message)}</span>
                   </div>
                 )}
               </>

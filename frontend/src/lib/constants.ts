@@ -217,3 +217,45 @@ export const CHAIN_CONFIGS: Record<ChainKey, ChainConfig> = {
   shentu: nonEvm("shentu", "Shentu", "cosmos", "shentu-2.2", "CTK", 6, "https://www.mintscan.io/shentu"),
   atomone: nonEvm("atomone", "AtomOne", "cosmos", "atomone-1", "ATONE", 6, "https://www.mintscan.io/atomone"),
 };
+
+/**
+ * Reverse lookup: chain ID (numeric for EVM, string for non-EVM) →
+ * human-readable chain name. Covers all 52 chains in CHAIN_CONFIGS.
+ *
+ * Examples:
+ *   chainNameFromId(137)           → "Polygon"
+ *   chainNameFromId("mainnet-beta") → "Solana"
+ *   chainNameFromId("osmosis-1")   → "Osmosis"
+ */
+export function chainNameFromId(chainId: number | string): string | null {
+  for (const cfg of Object.values(CHAIN_CONFIGS)) {
+    if (cfg.chainId === chainId) {
+      return cfg.name;
+    }
+  }
+  return null;
+}
+
+/** Look up a chain's display name by its config key (e.g. "solana", "near", "polygon"). */
+export function chainNameFromKey(key: string): string | null {
+  const cfg = CHAIN_CONFIGS[key as ChainKey];
+  return cfg?.name ?? null;
+}
+
+/**
+ * Format a viem-style chain display ("undefined (id: 137)") with the
+ * proper chain name from the 52-chain registry. Falls back to "unknown"
+ * if no match is found.
+ *
+ * Handles both EVM numeric IDs and any chain identifier that appears
+ * as "undefined" in error messages.
+ */
+export function formatChainInError(message: string): string {
+  return message.replace(
+    /chain:\s*undefined\s*\(id:\s*(\d+)\)/g,
+    (_, id: string) => {
+      const name = chainNameFromId(Number(id));
+      return `chain: ${name ?? "unknown"} (id: ${id})`;
+    },
+  );
+}

@@ -3,9 +3,58 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import time
 from typing import Any
 
 from backend.services.wallet_signing import EVM_CHAINS, verify_wallet_signature
+
+# Canonical reissue-message format: "pocketagent:reissue:<agent_id>:<unix_ts>"
+# Used by the wallet-signature reissue flow. The server MUST verify every
+# part, not just the timestamp window — otherwise a signature valid for
+# agent A (one of the user's own agents) can be replayed against agent B
+# when both share the same wallet.
+_CANONICAL_PREFIX = "pocketagent"
+_CANONICAL_ACTION = "reissue"
+_CANONICAL_PART_COUNT = 4
+_DEFAULT_MAX_AGE_SECONDS = 300
+
+
+def verify_canonical_reissue_message(
+    message: str,
+    expected_agent_id: str,
+    max_age_seconds: int = _DEFAULT_MAX_AGE_SECONDS,
+) -> tuple[bool, str]:
+    """Validate a wallet-signed reissue challenge is well-formed and fresh.
+
+    Returns (ok, reason). On success, reason is the empty string.
+
+    Checks (in order):
+      1. Format is exactly `<prefix>:<action>:<agent_id>:<ts>` (4 parts).
+      2. Prefix == "pocketagent".
+      3. Action == "reissue".
+      4. agent_id matches the path parameter (binds signature to action).
+      5. Timestamp is within ±max_age_seconds of server clock.
+
+    The agent_id check is the load-bearing one: without it, a wallet
+    signature valid for one agent could be replayed against any other
+    agent owned by the same wallet.
+    """
+    try:
+        parts = message.split(":")
+        if len(parts) != _CANONICAL_PART_COUNT:
+            return False, "Malformed challenge message"
+        if parts[0] != _CANONICAL_PREFIX:
+            return False, "Invalid message prefix"
+        if parts[1] != _CANONICAL_ACTION:
+            return False, "Invalid message action"
+        if parts[2] != expected_agent_id:
+            return False, "Message agent_id does not match target agent"
+        ts = int(parts[3])
+    except (ValueError, IndexError):
+        return False, "Malformed challenge message"
+    if abs(int(time.time()) - ts) > max_age_seconds:
+        return False, "Challenge expired; sign a fresh message"
+    return True, ""
 
 
 def generate_access_token() -> str:
@@ -69,4 +118,9 @@ def verify_proof(agent: dict[str, Any], proof: dict[str, Any]) -> bool:
     return False
 
 
-__all__ = ["generate_access_token", "hash_access_token", "verify_proof"]
+__all__ = [
+    "generate_access_token",
+    "hash_access_token",
+    "verify_canonical_reissue_message",
+    "verify_proof",
+]

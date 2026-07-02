@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { tokenStore } from "@/lib/token-store";
+import { api } from "@/lib/api";
 
 interface Props {
   open: boolean;
@@ -16,7 +17,6 @@ export function TokenRotateDialog({
   agentId,
   onClose,
   onRotated,
-  apiBase = "",
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,23 +29,12 @@ export function TokenRotateDialog({
     try {
       const currentToken = tokenStore.get(agentId);
       if (!currentToken) throw new Error("No current token in this browser");
-      const resp = await fetch(
-        `${apiBase}/api/agents/${encodeURIComponent(agentId)}/reissue-token`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            proof: { type: "current_token", token: currentToken },
-          }),
-        },
-      );
-      if (!resp.ok) {
-        const detail =
-          ((await resp.json().catch(() => ({}))) as { detail?: string })
-            ?.detail ?? `Error ${resp.status}`;
-        throw new Error(detail);
-      }
-      const data = (await resp.json()) as { access_token: string };
+      // Goes through the centralized API client so error mapping,
+      // auth headers, and retry behaviour stay consistent with the rest
+      // of the app. (Previously this dialog used raw fetch.)
+      const data = await api.agents.reissue(agentId, {
+        proof: { type: "current_token", token: currentToken },
+      });
       tokenStore.set(agentId, data.access_token);
       onRotated(data.access_token);
       onClose();

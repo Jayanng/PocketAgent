@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TokenDisplayModal } from "./token-display-modal";
 
@@ -10,6 +10,11 @@ describe("TokenDisplayModal", () => {
     token: "secret-token-value-1234567890",
     onAcknowledged: vi.fn(),
   };
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it("renders masked token by default", () => {
     render(<TokenDisplayModal {...defaultProps} />);
@@ -54,5 +59,31 @@ describe("TokenDisplayModal", () => {
     render(<TokenDisplayModal {...defaultProps} />);
     await user.click(screen.getByRole("button", { name: /copy/i }));
     expect(writeText).toHaveBeenCalledWith("secret-token-value-1234567890");
+  });
+
+  // ─── Regression: Copy "copied" indicator must not leak after unmount ─────
+  it("clears the copy-reset timer when the modal unmounts", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
+
+    const { unmount } = render(<TokenDisplayModal {...defaultProps} />);
+    // Wrap the click in act() so the await navigator.clipboard.writeText()
+    // microtask resolves and handleCopy reaches its setTimeout(...) call.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /copy/i }));
+    });
+
+    const clearCallsBeforeUnmount = clearSpy.mock.calls.length;
+    unmount();
+    // The cleanup useEffect must call clearTimeout at least once more than
+    // before unmount — to cancel the pending 2-second "Copied ✓" reset
+    // timer. Without the cleanup, no extra clearTimeout would happen here
+    // (the old code threw away the setTimeout handle entirely).
+    expect(clearSpy.mock.calls.length).toBeGreaterThan(clearCallsBeforeUnmount);
   });
 });

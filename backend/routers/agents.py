@@ -13,6 +13,7 @@ try:
     from ..services.agent_token_service import (
         generate_access_token as generate_new_access_token,
         hash_access_token,
+        verify_canonical_reissue_message,
         verify_proof,
     )
     from ..services.pocket_rpc import PocketRPCClient
@@ -309,20 +310,23 @@ async def reissue_access_token(
     if not verify_proof(agent, proof_dict):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid proof")
 
-    # Replay protection for wallet signatures (5 minute window)
+    # Canonical-message + replay protection for wallet signatures.
+    # The agent_id check is the load-bearing part: without it, a signature
+    # valid for one of the user's own agents could be replayed against any
+    # other agent they own (same wallet).
     if body.proof.type == "wallet_signature":
-        try:
-            parts = body.proof.message.split(":")
-            signed_ts = int(parts[-1])
-        except (ValueError, IndexError):
+        ok, reason = verify_canonical_reissue_message(
+            body.proof.message, expected_agent_id=agent_id
+        )
+        if not ok:
+            if "expired" in reason.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=reason,
+                )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Malformed challenge message",
-            )
-        if abs(int(time.time()) - signed_ts) > 300:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Challenge expired; sign a fresh message",
+                detail=reason,
             )
 
     new_token = generate_new_access_token()

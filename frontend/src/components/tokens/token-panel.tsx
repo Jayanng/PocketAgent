@@ -23,20 +23,33 @@ export function TokenPanel({
   const [rotatedAt, setRotatedAt] = useState<Date | null>(null);
 
   useEffect(() => {
-    // hasToken is initialized lazily via useState; only the subscription matters here.
-    return tokenStore.onChange((e) => {
+    // Track the "recently rotated" auto-clear timer so we can clear it on
+    // unmount or when agentId changes. Without this, the timer fires
+    // setRotatedAt on an unmounted component (React warns) and leaks on
+    // every StrictMode mount/unmount cycle.
+    let clearTimer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = tokenStore.onChange((e) => {
       if (e.agentId !== agentId) return;
       setHasToken(e.type === "set");
       if (e.type === "set") {
         setRotatedAt(new Date());
+        if (clearTimer) clearTimeout(clearTimer);
         // Auto-clear the "recently rotated" banner after 5 minutes (pure timer, not render-time).
-        window.setTimeout(() => {
+        clearTimer = setTimeout(() => {
           setRotatedAt((current) =>
             current && Date.now() - current.getTime() >= 5 * 60 * 1000 - 1000 ? null : current,
           );
+          clearTimer = null;
         }, 5 * 60 * 1000);
       }
     });
+    return () => {
+      unsubscribe();
+      if (clearTimer) {
+        clearTimeout(clearTimer);
+        clearTimer = null;
+      }
+    };
   }, [agentId]);
 
   if (!hasToken) {

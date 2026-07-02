@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { tokenStore } from "@/lib/token-store";
+import { api } from "@/lib/api";
 
 interface Props {
   open: boolean;
@@ -24,7 +25,6 @@ export function TokenImportDialog({
   onRequestChallenge,
   onSignMessage,
   agentChains,
-  apiBase = "",
 }: Props) {
   const [tab, setTab] = useState<"paste" | "wallet">("paste");
   const [pasteAgentId, setPasteAgentId] = useState("");
@@ -43,21 +43,15 @@ export function TokenImportDialog({
     setPasteError(null);
     setPasteBusy(true);
     try {
-      const resp = await fetch(
-        `${apiBase}/api/agents/${encodeURIComponent(pasteAgentId)}`,
-        { headers: { "X-Agent-Access-Token": pasteToken } },
-      );
-      if (resp.status === 200) {
-        tokenStore.set(pasteAgentId, pasteToken);
-        onImported(pasteAgentId, pasteToken);
-        onClose();
-      } else if (resp.status === 401 || resp.status === 403) {
-        setPasteError("Invalid token or wrong agent ID");
-      } else {
-        setPasteError(`Unexpected error (${resp.status})`);
-      }
+      // Goes through the centralized API client so error mapping,
+      // auth headers, and retry behaviour stay consistent with the rest
+      // of the app. (Previously this dialog used raw fetch.)
+      await api.agents.get(pasteAgentId, pasteToken);
+      tokenStore.set(pasteAgentId, pasteToken);
+      onImported(pasteAgentId, pasteToken);
+      onClose();
     } catch (e) {
-      setPasteError(e instanceof Error ? e.message : "Network error");
+      setPasteError(e instanceof Error ? e.message : "Invalid token or wrong agent ID");
     } finally {
       setPasteBusy(false);
     }
@@ -69,33 +63,18 @@ export function TokenImportDialog({
     try {
       const challenge = await onRequestChallenge(walletAgentId);
       const { signature, publicKey } = await onSignMessage(challenge.message);
-      const resp = await fetch(
-        `${apiBase}/api/agents/${encodeURIComponent(walletAgentId)}/reissue-token`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            proof: {
-              type: "wallet_signature",
-              chain: walletChain,
-              message: challenge.message,
-              signature,
-              public_key: publicKey,
-            },
-          }),
+      const data = await api.agents.reissue(walletAgentId, {
+        proof: {
+          type: "wallet_signature",
+          chain: walletChain,
+          message: challenge.message,
+          signature,
+          public_key: publicKey,
         },
-      );
-      if (resp.ok) {
-        const data = (await resp.json()) as { access_token: string };
-        tokenStore.set(walletAgentId, data.access_token);
-        onImported(walletAgentId, data.access_token);
-        onClose();
-      } else {
-        const detail =
-          ((await resp.json().catch(() => ({}))) as { detail?: string })
-            ?.detail ?? `Error ${resp.status}`;
-        setWalletError(detail);
-      }
+      });
+      tokenStore.set(walletAgentId, data.access_token);
+      onImported(walletAgentId, data.access_token);
+      onClose();
     } catch (e) {
       setWalletError(e instanceof Error ? e.message : "Failed");
     } finally {

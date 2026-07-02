@@ -18,7 +18,8 @@ export interface TokenBundle {
 
 export type TokenChangeEvent =
   | { type: "set"; agentId: string; token: string }
-  | { type: "forget"; agentId: string };
+  | { type: "forget"; agentId: string }
+  | { type: "import"; entries: Array<{ agentId: string; token: string }> };
 
 export interface TokenStore {
   get(agentId: string): string | null;
@@ -86,6 +87,10 @@ export function createTokenStore(): TokenStore {
             memory.set(event.agentId, event.token);
           } else if (event.type === "forget") {
             memory.delete(event.agentId);
+          } else if (event.type === "import") {
+            for (const { agentId, token } of event.entries) {
+              memory.set(agentId, token);
+            }
           }
           // Notify local listeners but don't re-broadcast
           notify(event, false);
@@ -103,9 +108,12 @@ export function createTokenStore(): TokenStore {
     },
     set(agentId, token) {
       hydrate();
-      memory.set(agentId, token);
+      // Trim surrounding whitespace so copy/paste from terminals / browsers
+      // doesn't introduce invisible bytes that break hash matching later.
+      const trimmed = token.trim();
+      memory.set(agentId, trimmed);
       try {
-        localStorage.setItem(storageKey(agentId), token);
+        localStorage.setItem(storageKey(agentId), trimmed);
       } catch (e) {
         if (
           !quotaWarned &&
@@ -118,7 +126,7 @@ export function createTokenStore(): TokenStore {
           );
         }
       }
-      notify({ type: "set", agentId, token });
+      notify({ type: "set", agentId, token: trimmed });
     },
     forget(agentId) {
       hydrate();
@@ -151,16 +159,33 @@ export function createTokenStore(): TokenStore {
       if (bundle.version !== BUNDLE_VERSION) {
         return { ok: 0, failed: bundle.tokens.map((t) => t.agentId) };
       }
+      // Batch into a single cross-tab BroadcastChannel message instead of
+      // firing one message per token (which previously caused N postMessage
+      // round-trips on every bulk import). Local listeners still get a
+      // "set" event per token so their UI updates stay correct.
       let ok = 0;
       const failed: string[] = [];
+      const entries: Array<{ agentId: string; token: string }> = [];
       for (const { agentId, token } of bundle.tokens) {
         if (!agentId || !token) {
           failed.push(agentId);
           continue;
         }
-        this.set(agentId, token);
+        const trimmed = token.trim();
+        memory.set(agentId, trimmed);
+        try {
+          localStorage.setItem(storageKey(agentId), trimmed);
+        } catch {
+          // per-entry quota failure: skip but keep going
+        }
+        // Notify per-token listeners locally (no broadcast) so banner UI
+        // updates token-by-token. Cross-tab sync fans out once at the end.
+        notify({ type: "set", agentId, token: trimmed }, false);
+        entries.push({ agentId, token: trimmed });
         ok++;
       }
+      // One composite broadcast for cross-tab sync.
+      notify({ type: "import", entries }, true);
       return { ok, failed };
     },
     onChange(listener) {

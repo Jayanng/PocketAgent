@@ -73,4 +73,54 @@ describe("TokenStore", () => {
     expect(store.get("agent-1")).toBe("token-abc");
     setItemSpy.mockRestore();
   });
+
+  // ─── Regression: trim whitespace on set ─────────────────────────────────
+  it("trims whitespace around the token on set", () => {
+    const store = createTokenStore();
+    // Simulate a user pasting a token with surrounding whitespace from a
+    // copy/paste action or accidental trailing newline.
+    store.set("agent-1", "  tok-abc\n");
+    expect(store.get("agent-1")).toBe("tok-abc");
+  });
+
+  it("emits listener event with the trimmed token", () => {
+    const store = createTokenStore();
+    const listener = vi.fn();
+    store.onChange(listener);
+    store.set("agent-1", "  tok-abc\n");
+    expect(listener).toHaveBeenCalledWith({
+      type: "set",
+      agentId: "agent-1",
+      token: "tok-abc",
+    });
+  });
+
+  // ─── Regression: importMany should send ONE postMessage, not N ─────────
+  it("importMany sends exactly one BroadcastChannel message for N tokens", () => {
+    const store = createTokenStore();
+    const postSpy = vi.fn();
+    // Replace the BroadcastChannel instance the store uses after creation.
+    // We spy on the prototype method so any postMessage call is captured.
+    const proto = BroadcastChannel.prototype;
+    const realPost = proto.postMessage;
+    proto.postMessage = postSpy;
+    try {
+      store.importMany({
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        tokens: [
+          { agentId: "a", token: "t-a" },
+          { agentId: "b", token: "t-b" },
+          { agentId: "c", token: "t-c" },
+          { agentId: "d", token: "t-d" },
+          { agentId: "e", token: "t-e" },
+        ],
+      });
+      // Either one composite "import" message, or N individual set messages.
+      // The bug was N individual set messages; the fix should be 1.
+      expect(postSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      proto.postMessage = realPost;
+    }
+  });
 });

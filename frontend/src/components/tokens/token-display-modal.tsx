@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Copy, Download, Eye, EyeOff } from "lucide-react";
 
 interface Props {
@@ -19,6 +19,20 @@ export function TokenDisplayModal({
   const [revealed, setRevealed] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+  // Track pending copy-reset timer so we can clear it if the modal
+  // unmounts before the 2-second "Copied ✓" indicator expires. Without
+  // this, React warns about state updates on an unmounted component
+  // (and in StrictMode the timer leaks on every mount/unmount cycle).
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) {
+        clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = null;
+      }
+    };
+  }, []);
 
   if (!open) return null;
 
@@ -26,7 +40,13 @@ export function TokenDisplayModal({
     try {
       await navigator.clipboard.writeText(token);
       setCopyState("copied");
-      setTimeout(() => setCopyState("idle"), 2000);
+      if (copyTimerRef.current) {
+        clearTimeout(copyTimerRef.current);
+      }
+      copyTimerRef.current = setTimeout(() => {
+        setCopyState("idle");
+        copyTimerRef.current = null;
+      }, 2000);
     } catch (e) {
       console.error("Clipboard write failed", e);
     }

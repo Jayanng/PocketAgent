@@ -1,7 +1,10 @@
 """Tests for backend/services/agent_token_service.py."""
+import time
+
 from backend.services.agent_token_service import (
     generate_access_token,
     hash_access_token,
+    verify_canonical_reissue_message,
     verify_proof,
 )
 
@@ -138,3 +141,76 @@ def test_verify_proof_wallet_signature_evm_falls_back_to_wallet_address():
     # reason). We can't easily distinguish without injecting a mock; instead we
     # cover the positive case via integration tests in test_reissue_endpoint.py.
     assert verify_proof(agent, proof) is False
+
+
+# ─── Canonical reissue-message format (cross-agent replay protection) ────────
+
+
+def _valid_message(agent_id: str = "agent-A", ts: int | None = None) -> str:
+    if ts is None:
+        ts = int(time.time())
+    return f"pocketagent:reissue:{agent_id}:{ts}"
+
+
+def test_canonical_message_accepts_fresh_well_formed_message():
+    ok, reason = verify_canonical_reissue_message(_valid_message(), "agent-A")
+    assert ok is True
+    assert reason == ""
+
+
+def test_canonical_message_rejects_wrong_prefix():
+    ok, _ = verify_canonical_reissue_message(
+        "evilcorp:reissue:agent-A:" + str(int(time.time())), "agent-A"
+    )
+    assert ok is False
+
+
+def test_canonical_message_rejects_wrong_action():
+    ok, _ = verify_canonical_reissue_message(
+        "pocketagent:rotate:agent-A:" + str(int(time.time())), "agent-A"
+    )
+    assert ok is False
+
+
+def test_canonical_message_rejects_wrong_agent_id():
+    """REGRESSION: signed message for agent A must NOT validate against agent B.
+
+    Without this check, an attacker who captures a valid wallet_signature proof
+    for agent A (their own agent, same wallet) could submit it to
+    /api/agents/agent-B/reissue-token and the server would accept it because
+    the signature is cryptographically valid for the wallet that owns B too.
+    """
+    ok, reason = verify_canonical_reissue_message(_valid_message("agent-A"), "agent-B")
+    assert ok is False
+    assert "agent" in reason.lower() or "match" in reason.lower()
+
+
+def test_canonical_message_rejects_too_old_timestamp():
+    ok, _ = verify_canonical_reissue_message(
+        _valid_message("agent-A", ts=int(time.time()) - 400), "agent-A"
+    )
+    assert ok is False
+
+
+def test_canonical_message_rejects_non_numeric_timestamp():
+    ok, _ = verify_canonical_reissue_message(
+        "pocketagent:reissue:agent-A:notanumber", "agent-A"
+    )
+    assert ok is False
+
+
+def test_canonical_message_rejects_too_few_parts():
+    ok, _ = verify_canonical_reissue_message("pocketagent:reissue:agent-A", "agent-A")
+    assert ok is False
+
+
+def test_canonical_message_rejects_too_many_parts():
+    ok, _ = verify_canonical_reissue_message(
+        "pocketagent:reissue:agent-A:" + str(int(time.time())) + ":extra", "agent-A"
+    )
+    assert ok is False
+
+
+def test_canonical_message_rejects_empty_string():
+    ok, _ = verify_canonical_reissue_message("", "agent-A")
+    assert ok is False

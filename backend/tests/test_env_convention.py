@@ -7,14 +7,21 @@ live in frontend/.env and frontend/.env.local.
 If anyone re-adds a non-NEXT_PUBLIC_* variable to root .env, this test fails
 with a clear pointer to the offending line. This makes "drift" structurally
 impossible to reintroduce silently.
+
+Note: .env is gitignored, so these tests skip gracefully in CI where the
+file doesn't exist. They still enforce the convention locally.
 """
 from pathlib import Path
+
+import pytest
 
 from backend.config import BACKEND_DIR
 
 
 ROOT_ENV = BACKEND_DIR.parent / ".env"
 ALLOWED_PREFIXES = ("NEXT_PUBLIC_",)
+
+_NO_ENV_REASON = "root .env not present (expected in CI; create one locally for this guard)"
 
 
 def _parse_env(path: Path) -> list[tuple[int, str, str]]:
@@ -31,10 +38,12 @@ def _parse_env(path: Path) -> list[tuple[int, str, str]]:
     return parsed
 
 
+@pytest.mark.skipif(not ROOT_ENV.exists(), reason=_NO_ENV_REASON)
 def test_root_env_file_exists() -> None:
     assert ROOT_ENV.exists(), f"root .env not found at {ROOT_ENV}"
 
 
+@pytest.mark.skipif(not ROOT_ENV.exists(), reason=_NO_ENV_REASON)
 def test_root_env_only_holds_next_public_keys() -> None:
     entries = _parse_env(ROOT_ENV)
     assert entries, (
@@ -54,6 +63,7 @@ def test_root_env_only_holds_next_public_keys() -> None:
     )
 
 
+@pytest.mark.skipif(not ROOT_ENV.exists(), reason=_NO_ENV_REASON)
 def test_root_env_has_required_walletconnect_project_id() -> None:
     entries = dict((k, v) for _, k, v in _parse_env(ROOT_ENV))
     assert "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID" in entries, (

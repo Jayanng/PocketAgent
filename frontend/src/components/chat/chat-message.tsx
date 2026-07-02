@@ -124,7 +124,11 @@ function MarkdownContent({ content }: { content: string }) {
 function ConfirmationBadge({
   chainCalls,
 }: {
-  chainCalls?: Array<{ tool?: string; result?: Record<string, unknown> }>;
+  // Reuse the shared ChainCall type (result is `unknown` since tool results
+  // vary); we narrow it with a local `as` cast below. The previous inline
+  // `{ tool?: string; result?: Record<string, unknown> }` was incompatible
+  // with ChainCall.result (`unknown`), causing a tsc error at the call site.
+  chainCalls?: ChainCall[];
 }) {
   const call = chainCalls?.find((c) => c.tool === "tx_confirmation");
   if (!call || !call.result) return null;

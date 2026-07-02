@@ -156,6 +156,7 @@ class PocketRPCClient:
         max_retries: int = 3,
     ) -> dict[str, Any]:
         last_response: httpx.Response | None = None
+        last_error: Exception | None = None
         for attempt in range(max_retries + 1):
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -173,19 +174,39 @@ class PocketRPCClient:
                     await asyncio.sleep(2**attempt)
                     continue
                 response.raise_for_status()
-                data = response.json()
+                # The body must be valid JSON. Pocket gateways occasionally answer
+                # with an empty or plain-text/HTML error page (e.g. a 404 "No proxy
+                # rule for this subdomain") instead of a JSON-RPC envelope. Parsing
+                # such a body with response.json() raises a bare json.JSONDecodeError
+                # ("Expecting value: line 1 column 1 (char 0)") that can escape the
+                # retry loop and crash the calling tool / MCP server. Decode
+                # explicitly and convert any failure into a structured RuntimeError
+                # so execute_tool can degrade it into an {"available": false, ...}
+                # result instead of throwing.
+                if not response.content:
+                    raise RuntimeError("Pocket RPC returned an empty response body.")
+                try:
+                    data = response.json()
+                except ValueError as exc:
+                    body = response.text.strip()
+                    raise RuntimeError(
+                        f"Pocket RPC returned a non-JSON response: "
+                        f"{body[:200] or '<empty body>'}"
+                    ) from exc
                 if isinstance(data, dict) and "error" in data:
                     raise RuntimeError(f"RPC error: {data['error']}")
                 if not isinstance(data, dict):
                     return {"result": data}
                 return data
-            except (httpx.RequestError, httpx.HTTPStatusError, ValueError):
+            except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+                last_error = exc
                 if attempt >= max_retries:
                     break
                 await asyncio.sleep(2**attempt)
 
         status = last_response.status_code if last_response is not None else "request_error"
-        raise RuntimeError(f"Pocket RPC request failed after retries (status={status})")
+        detail = f" ({last_error})" if last_error is not None else ""
+        raise RuntimeError(f"Pocket RPC request failed after retries (status={status}){detail}")
 
     async def call_with_failover(self, chain: str, payload: dict[str, Any]) -> Any:
         chain = self._canonical_chain(chain)

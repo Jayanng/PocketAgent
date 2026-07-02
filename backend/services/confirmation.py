@@ -30,8 +30,8 @@ try:
     from .pocket_rpc import PocketRPCClient
     from ..database import create_message
 except ImportError:  # pragma: no cover - allow running as a script
-    from chain_registry import get_chain_metadata
-    from pocket_rpc import PocketRPCClient
+    from services.chain_registry import get_chain_metadata
+    from services.pocket_rpc import PocketRPCClient
     from database import create_message
 
 

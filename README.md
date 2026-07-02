@@ -182,7 +182,8 @@ Detailed usage documentation can be found in `docs/mcp-server.md`.
 ## Diagnostics & Reliability
 
 * **Graceful Failure Isolation**: Upstream RPC latency or network timeouts return standard `{"available": false}` objects instead of throwing exceptions. A single degraded node will not disrupt the remaining agent workspace loop.
-* **Intelligent Retries**: Transparent client retries for gateway rate limits (429) and network gateway timeouts (408).
+* **Structured RPC Error Handling**: Pocket gateways occasionally respond with empty or plain-text/HTML error pages instead of JSON-RPC envelopes. These are now explicitly detected and converted into structured `RuntimeError` messages, preventing `JSONDecodeError` crashes and allowing tools to degrade gracefully.
+* **Intelligent Retries**: Transparent client retries for gateway rate limits (429), gateway timeouts (408), and server errors (5xx) with exponential backoff. Error details are preserved in the final exception for easier debugging.
 * **Guarded Writes**: Spending caps are evaluated per chain prior to broadcasting transactions, blocking excessive token outflows.
 
 ---

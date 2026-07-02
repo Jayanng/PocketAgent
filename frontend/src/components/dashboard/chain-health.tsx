@@ -42,7 +42,11 @@ export function ChainHealth() {
 
   const checkAll = () => setProbeAll(true);
   const refresh = () => {
-    setProbeAll(false);
+    // Mode-aware: re-probe whatever view is active. If we're in the all-52 view
+    // (probeAll), this re-runs the full live sweep; otherwise it refreshes the
+    // cheap headline-chains poll. We intentionally do NOT reset probeAll, so the
+    // refresh icon never kicks you out of the all-52 view — you press it again
+    // later to re-check all 52 on demand.
     void refetch();
   };
 
@@ -102,7 +106,7 @@ export function ChainHealth() {
             <Zap size={13} />
             {probeAll && isFetching ? "Probing 52…" : "Check all chains"}
           </Button>
-          <Button variant="secondary" size="icon" onClick={refresh} title="Refresh headline chains" className="h-8 w-8">
+          <Button variant="secondary" size="icon" onClick={refresh} title={probeAll ? "Re-probe all 52 chains" : "Refresh headline chains"} className="h-8 w-8">
             <RefreshCw size={13} className={isFetching ? "animate-spin" : undefined} />
           </Button>
         </div>

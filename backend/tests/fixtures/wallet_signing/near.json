@@ -1,0 +1,7 @@
+{
+  "address": "c8364c492fc50062e4fef46fce3f81059b44ba101eaef2f50f3eb974c2cdc330",
+  "public_key": "c8364c492fc50062e4fef46fce3f81059b44ba101eaef2f50f3eb974c2cdc330",
+  "message": "pocketagent:reissue:test-agent:1740000000",
+  "preimage_hex": "00000000706f636b65746167656e743a726569737375653a746573742d6167656e743a31373430303030303030",
+  "signature": "0yMuFdoksOxAZ9UHeZ8rUWMGMcok0jtacFofrbPa6OiEKOMQjYfha/VCIZaH4SF+hhDJgVZRR5N55C6Ns0DkAg=="
+}

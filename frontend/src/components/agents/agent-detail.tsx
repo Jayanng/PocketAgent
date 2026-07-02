@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Copy, ExternalLink, Trash2, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useAccount, useSignMessage } from "wagmi";
 
 import { AgentEditor } from "@/components/agents/agent-editor";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +12,9 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ChainIcon } from "@/components/chains/chain-icon";
 import { FundAgentDialog } from "@/components/agents/fund-agent-dialog";
+import { TokenImportDialog } from "@/components/tokens/token-import-dialog";
+import { TokenPanel } from "@/components/tokens/token-panel";
+import { TokenRotateDialog } from "@/components/tokens/token-rotate-dialog";
 import { canUseProtectedAgentRoutes, isAgentAuthDisabled } from "@/lib/agent-auth";
 import { getAgentAccessToken } from "@/lib/api";
 import type { Agent, AgentBalancesResponse, Conversation } from "@/lib/api";
@@ -35,7 +39,18 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
   const [fundingOpen, setFundingOpen] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [tokenDraft, setTokenDraft] = useState("");
-  const { deleteAgent, importAgentAccessToken, isLoading, loadBalances } = useAgentStore();
+  const [rotateOpen, setRotateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const {
+    deleteAgent,
+    importAgentAccessToken,
+    isLoading,
+    loadBalances,
+  } = useAgentStore();
+
+  // Wallet-signing hooks for the token-reissue flow (EVM only).
+  const { address: connectedAddress, isConnected } = useAccount();
+  const { signMessageAsync } = useSignMessage();
 
   const hasActiveToken = agent ? Boolean(getAgentAccessToken(agent.id)) : false;
   const canUseProtectedRoutes = canUseProtectedAgentRoutes(agent?.id);
@@ -256,6 +271,49 @@ export function AgentDetail({ agent, conversations, balances, isLoadingBalances 
       {hasProtectedDetails && (
         <FundAgentDialog agent={agent} open={fundingOpen && hasProtectedDetails} onClose={() => setFundingOpen(false)} />
       )}
+
+      <div className="mt-4" data-testid="token-panel-section">
+        <TokenPanel
+          agentId={agent.id}
+          agentName={agent.name}
+          onRotate={() => setRotateOpen(true)}
+          onImport={() => setImportOpen(true)}
+          onSignToReissue={() => setImportOpen(true)}
+        />
+      </div>
+
+      <TokenRotateDialog
+        open={rotateOpen}
+        agentId={agent.id}
+        onClose={() => setRotateOpen(false)}
+        onRotated={async () => {
+          // After rotation, refresh balances so the new token is exercised.
+          await loadBalances(agent.id);
+        }}
+      />
+
+      <TokenImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => setImportOpen(false)}
+        agentChains={Object.keys(agent.wallet_addresses ?? {})}
+        apiBase=""
+        onRequestChallenge={async () => {
+          const { api } = await import("@/lib/api");
+          return api.agents.reissueChallenge(agent.id);
+        }}
+        onSignMessage={async (message: string) => {
+          if (!isConnected || !connectedAddress) {
+            throw new Error(
+              "Connect an EVM wallet (e.g. MetaMask) first, then retry.",
+            );
+          }
+          // wagmi's signMessage uses personal_sign (EIP-191), which matches the
+          // backend EVM verifier (eth_account.messages.encode_defunct).
+          const signature = await signMessageAsync({ account: connectedAddress, message });
+          return { signature, publicKey: connectedAddress };
+        }}
+      />
     </Card>
   );
 }

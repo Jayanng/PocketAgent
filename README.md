@@ -188,6 +188,44 @@ Detailed usage documentation can be found in `docs/mcp-server.md`.
 
 ---
 
+## Testing
+
+PocketAgent ships with **182 automated tests** across two suites:
+
+| Suite | Tests | Tooling | Command |
+| :--- | ---: | :--- | :--- |
+| **Backend** | 138 | pytest 9 · aiosqlite · FastAPI TestClient | `cd backend && .venv\Scripts\pytest.exe -q` |
+| **Frontend** | 44  | Vitest 4 · React Testing Library · jsdom | `cd frontend && node.exe node_modules/vitest/dist/cli.js run` |
+| **Total**  | **182** | | |
+
+### Test coverage highlights
+
+* **Database migration** — additive `access_token_created_at` / `access_token_revoked_at` columns, idempotent init.
+* **Environment convention** — 3 tests enforcing that root `.env` only contains `NEXT_PUBLIC_*` keys and provides `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`.
+* **Per-chain wallet signature verification** — 18 unit tests covering all 6 supported chains (EVM, Solana, Sui, NEAR, Cosmos, TRON) with valid-signature, invalid-signature, and wrong-address vectors per chain.
+* **Token reissue endpoints** — 9 endpoint tests + 1 full lifecycle test covering `current_token` and `wallet_signature` proofs, expired-challenge rejection (422), and wrong-signer rejection (401).
+* **TokenStore** — 8 unit tests covering localStorage persistence, in-memory cache, BroadcastChannel cross-tab sync, listener notifications, and quota-exceeded fallback.
+* **API client reissue methods** — 11 unit tests covering `api.agents.reissue`, `api.agents.reissueChallenge`, and the `get/remember/forget` token helpers' delegation to TokenStore.
+* **Agent store actions** — 8 unit tests covering `rotateAgentAccessToken` (success, no-token error, server error, isRotating state), `exportAllAgentTokens` (download trigger), and `importAgentAccessToken` (success, validation, error capture).
+* **Token UI components** — 17 component tests across `TokenDisplayModal`, `TokenPanel`, `TokenImportDialog`, and `TokenRotateDialog`.
+
+### Running the suites
+
+```bash
+# Backend (from repo root)
+cd backend
+set PYTHONPATH=..  # Windows; Linux/macOS: PYTHONPATH=..
+.venv\Scripts\pytest.exe -q
+
+# Frontend (from repo root)
+cd frontend
+node.exe node_modules/vitest/dist/cli.js run
+```
+
+Manual end-to-end flows (multi-tab sync, wallet-sign recovery, race conditions) are documented in `docs/superpowers/plans/2026-06-30-token-ux-qa.md`.
+
+---
+
 ## AI Usage Disclosure
 
 This project was built with assistance from AI coding tools, including **Cursor** (Claude-based agent), **Grok**, and **OpenAI** models for implementation, testing, and documentation. Human developers reviewed and integrated all generated code.

@@ -1,0 +1,8 @@
+{
+  "address": "0x48d74fa42cd3a933e28f97d893c0cec4625a7a13ecc8a119a710f3c069e5db03",
+  "public_key": "qbteA9L3wWFA57PxQS7riPJ1uIWvRQLQMVh0BXlyu74=",
+  "message": "pocketagent:reissue:test-agent:1740000000",
+  "preimage_hex": "000000706f636b65746167656e743a726569737375653a746573742d6167656e743a31373430303030303030",
+  "digest_hex": "61d1d1156ca45222fd47779eb60f93a0ec46ceacd3b0eff3258f1a04f39d1cdd",
+  "signature": "iXDARRIjNcS9+K9q9bOjtt6s5U7WS7RFDcPNzhhDmRoMhZwVhWL4hS9FQEEQ3i8r3R6HUcaPps0vIRTrYV/bDg=="
+}

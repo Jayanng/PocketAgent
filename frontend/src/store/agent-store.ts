@@ -5,6 +5,7 @@ import { create } from "zustand";
 import {
   api,
   forgetAgentAccessToken,
+  getAgentAccessToken,
   rememberAgentAccessToken,
   type Agent,
   type AgentBalancesResponse,
@@ -13,6 +14,7 @@ import {
   type AgentUpdateInput,
   type Conversation,
 } from "@/lib/api";
+import { tokenStore } from "@/lib/token-store";
 
 type AgentState = {
   agents: Agent[];
@@ -24,6 +26,7 @@ type AgentState = {
   isLoading: boolean;
   isCreating: boolean;
   isUpdating: boolean;
+  isRotating: boolean;
   error: string | null;
   createdWalletAddress: string | null;
   createdWalletAddresses: Record<string, string>;
@@ -37,6 +40,8 @@ type AgentState = {
   fundAgent: (id: string) => Promise<string>;
   loadBalances: (id: string) => Promise<void>;
   importAgentAccessToken: (id: string, token: string) => Promise<boolean>;
+  rotateAgentAccessToken: (id: string) => Promise<string>;
+  exportAllAgentTokens: () => void;
   clearCreatedWalletAddress: () => void;
 };
 
@@ -50,6 +55,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   isLoading: false,
   isCreating: false,
   isUpdating: false,
+  isRotating: false,
   error: null,
   createdWalletAddress: null,
   createdWalletAddresses: {},
@@ -203,6 +209,44 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     } finally {
       set({ isLoading: false });
     }
+  },
+
+  async rotateAgentAccessToken(id) {
+    const currentToken = getAgentAccessToken(id);
+    if (!currentToken) {
+      const message = "No current token in this browser.";
+      set({ error: message });
+      throw new Error(message);
+    }
+    set({ isRotating: true, error: null });
+    try {
+      const res = await api.agents.reissue(id, {
+        proof: { type: "current_token", token: currentToken },
+      });
+      rememberAgentAccessToken(id, res.access_token);
+      return res.access_token;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Token rotation failed.";
+      set({ error: message });
+      throw new Error(message);
+    } finally {
+      set({ isRotating: false });
+    }
+  },
+
+  exportAllAgentTokens() {
+    // Bundle is exported directly via the tokenStore; download triggered here.
+    const bundle = tokenStore.exportAll();
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pocketagent-tokens-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   },
 
   clearCreatedWalletAddress() {

@@ -64,6 +64,9 @@ describe("TokenStore", () => {
 
   it("falls back to in-memory when localStorage quota is exceeded", () => {
     const store = createTokenStore();
+    // Suppress the intentional console.warn from token-store.ts so it
+    // doesn't clutter test output. The warning is correct UX behavior.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const setItemSpy = vi
       .spyOn(Storage.prototype, "setItem")
       .mockImplementation(() => {
@@ -71,7 +74,9 @@ describe("TokenStore", () => {
       });
     expect(() => store.set("agent-1", "token-abc")).not.toThrow();
     expect(store.get("agent-1")).toBe("token-abc");
+    expect(warnSpy).toHaveBeenCalledOnce();
     setItemSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 
   // ─── Regression: trim whitespace on set ─────────────────────────────────

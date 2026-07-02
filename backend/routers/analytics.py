@@ -118,43 +118,52 @@ async def chain_health(live: bool = Query(False)):
     """
     rpc = _rpc()
 
-    async def probe(chain_key: str) -> dict:
+    async def probe(chain_key: str, retries: int = 1) -> dict:
         meta = CHAIN_REGISTRY.get(chain_key)
         if not meta:
             return {"chain": chain_key, "name": chain_key, "status": "red",
                     "block_height": None, "latency_ms": None, "error": "unknown chain"}
-        started = datetime.now(timezone.utc)
-        try:
-            # 15s ceiling: ethereum's eth_blockNumber routinely takes ~7-8s via
-            # the public Pocket portal (verified 2026-06-18). Probes run
-            # concurrently via asyncio.gather, so total wall time is bounded by
-            # the slowest chain, not the sum.
-            block = await asyncio.wait_for(
-                rpc.get_block_number(chain_key), timeout=15.0
-            )
-            latency = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
-            # >8s is genuinely sluggish even for ethereum; 2-8s is tolerable.
-            status = "yellow" if latency > 8000 else "green"
-            return {
-                "chain": chain_key,
-                "name": meta["name"],
-                "protocol": meta["protocol"],
-                "symbol": meta["symbol"],
-                "status": status,
-                "block_height": block,
-                "latency_ms": latency,
-                "error": None,
-                "live": True,
-            }
-        except asyncio.TimeoutError:
-            return {"chain": chain_key, "name": meta["name"], "protocol": meta["protocol"],
-                    "symbol": meta["symbol"], "status": "red", "block_height": None,
-                    "latency_ms": None, "error": "timeout", "live": True}
-        except Exception as exc:  # noqa: BLE001 — surface any RPC failure as red
-            logger.warning("chain-health probe failed for %s: %s", chain_key, exc)
-            return {"chain": chain_key, "name": meta["name"], "protocol": meta["protocol"],
-                    "symbol": meta["symbol"], "status": "red", "block_height": None,
-                    "latency_ms": None, "error": str(exc), "live": True}
+        for attempt in range(retries + 1):
+            started = datetime.now(timezone.utc)
+            try:
+                # 30s ceiling: slower chains like Tron can take 15-25s via
+                # the public Pocket portal. Probes run concurrently via
+                # asyncio.gather, so total wall time is bounded by the
+                # slowest chain, not the sum.
+                block = await asyncio.wait_for(
+                    rpc.get_block_number(chain_key), timeout=30.0
+                )
+                latency = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+                # >8s is genuinely sluggish even for ethereum; 2-8s is tolerable.
+                status = "yellow" if latency > 8000 else "green"
+                return {
+                    "chain": chain_key,
+                    "name": meta["name"],
+                    "protocol": meta["protocol"],
+                    "symbol": meta["symbol"],
+                    "status": status,
+                    "block_height": block,
+                    "latency_ms": latency,
+                    "error": None,
+                    "live": True,
+                }
+            except asyncio.TimeoutError:
+                if attempt < retries:
+                    logger.debug("health probe timeout for %s (attempt %d/%d), retrying...", chain_key, attempt + 1, retries + 1)
+                    await asyncio.sleep(1.0)
+                    continue
+                return {"chain": chain_key, "name": meta["name"], "protocol": meta["protocol"],
+                        "symbol": meta["symbol"], "status": "red", "block_height": None,
+                        "latency_ms": None, "error": "timeout", "live": True}
+            except Exception as exc:  # noqa: BLE001 — surface any RPC failure as red
+                if attempt < retries:
+                    logger.debug("health probe failed for %s (attempt %d/%d), retrying...", chain_key, attempt + 1, retries + 1)
+                    await asyncio.sleep(1.0)
+                    continue
+                logger.warning("chain-health probe failed for %s: %s", chain_key, exc)
+                return {"chain": chain_key, "name": meta["name"], "protocol": meta["protocol"],
+                        "symbol": meta["symbol"], "status": "red", "block_height": None,
+                        "latency_ms": None, "error": str(exc), "live": True}
 
     def registered(chain_key: str) -> dict:
         """Registry metadata only — no live probe. Honest 'configured, not polled' state."""

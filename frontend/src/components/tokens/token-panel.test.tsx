@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent } from "@testing-library/react";
 import { TokenPanel } from "./token-panel";
 import { tokenStore } from "@/lib/token-store";
 
@@ -92,9 +92,10 @@ describe("TokenPanel", () => {
         onSignToReissue={vi.fn()}
       />,
     );
-    // Fire a synthetic 'set' event to trigger the rotatedAt timer.
-    // The active panel subscribes via store.onChange.
-    store.set("a1", "tok-2");
+    // Fire a synthetic 'set' event wrapped in act() to suppress React's
+    // warning about state updates outside act(). The active panel
+    // subscribes via store.onChange.
+    act(() => { store.set("a1", "tok-2"); });
     unmount();
     // Advance past 5 minutes; without cleanup this would attempt to
     // setState on an unmounted component.

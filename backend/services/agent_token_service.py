@@ -6,7 +6,10 @@ import secrets
 import time
 from typing import Any
 
-from backend.services.wallet_signing import EVM_CHAINS, verify_wallet_signature
+try:
+    from ..services.wallet_signing import EVM_CHAINS, verify_wallet_signature
+except ImportError:
+    from services.wallet_signing import EVM_CHAINS, verify_wallet_signature
 
 # Canonical reissue-message format: "pocketagent:reissue:<agent_id>:<unix_ts>"
 # Used by the wallet-signature reissue flow. The server MUST verify every

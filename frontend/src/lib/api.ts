@@ -307,6 +307,7 @@ export const api = {
       return request<ChatResponse>("/api/chat", {
         method: "POST",
         accessToken,
+        signal: AbortSignal.timeout(30_000),
         body: JSON.stringify({
           message,
           agent_id: agentId,

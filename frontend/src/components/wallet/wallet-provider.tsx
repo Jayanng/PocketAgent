@@ -56,7 +56,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
   }, []);
 
   return (
-    <WagmiProvider config={walletConfig}>
+    <WagmiProvider config={walletConfig} reconnectOnMount={false}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider
           theme={lightTheme({

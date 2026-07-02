@@ -190,13 +190,13 @@ Detailed usage documentation can be found in `docs/mcp-server.md`.
 
 ## Testing
 
-PocketAgent ships with **182 automated tests** across two suites:
+PocketAgent ships with **246 automated tests** across two suites:
 
 | Suite | Tests | Tooling | Command |
 | :--- | ---: | :--- | :--- |
-| **Backend** | 138 | pytest 9 · aiosqlite · FastAPI TestClient | `cd backend && .venv\Scripts\pytest.exe -q` |
-| **Frontend** | 44  | Vitest 4 · React Testing Library · jsdom | `cd frontend && node.exe node_modules/vitest/dist/cli.js run` |
-| **Total**  | **182** | | |
+| **Backend** | 175 | pytest 9 · aiosqlite · FastAPI TestClient | `cd backend && .venv\Scripts\pytest.exe -q` |
+| **Frontend** | 71  | Vitest 4 · React Testing Library · jsdom | `cd frontend && node.exe node_modules/vitest/dist/cli.js run` |
+| **Total**  | **246** | | |
 
 ### Test coverage highlights
 

@@ -1,0 +1,29 @@
+{
+  "name": "pocketagent",
+  "version": "1.0.0",
+  "description": "**Enterprise-grade AI agent platform for the multi-chain ecosystem — powered by [Pocket Network](https://www.pokt.network/).**",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && ./venv/bin/python init.py",
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jayanng/PocketAgent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Jayanng/PocketAgent/issues"
+  },
+  "homepage": "https://github.com/Jayanng/PocketAgent#readme",
+  "devDependencies": {
+    "concurrently": "^10.0.3"
+  }
+}

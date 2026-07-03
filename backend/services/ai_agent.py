@@ -160,7 +160,7 @@ class AIAgentService:
                             "role": "tool",
                             "tool_call_id": tool_call.id,
                             "name": fn_name,
-                            "content": json.dumps(result),
+                            "content": self._serialize_tool_result(result),
                         }
                     )
 
@@ -271,6 +271,35 @@ class AIAgentService:
         return {**args, "address": connected_wallet}
 
     @staticmethod
+    def _serialize_tool_result(result: Any, *, max_chars: int = 12_000) -> str:
+        """Keep tool payloads small enough for the follow-up LLM call."""
+        serialized = json.dumps(result)
+        if len(serialized) <= max_chars:
+            return serialized
+        if isinstance(result, dict):
+            compact: dict[str, Any] = {
+                "truncated": True,
+                "original_size_chars": len(serialized),
+            }
+            for key, value in result.items():
+                if isinstance(value, list):
+                    compact[key] = {"count": len(value), "preview": value[:3]}
+                elif isinstance(value, dict) and len(json.dumps(value)) > 2_000:
+                    compact[key] = {"keys": list(value.keys())[:20], "note": "nested object omitted"}
+                else:
+                    compact[key] = value
+            compact_json = json.dumps(compact)
+            if len(compact_json) <= max_chars:
+                return compact_json
+        return json.dumps(
+            {
+                "truncated": True,
+                "original_size_chars": len(serialized),
+                "preview": serialized[: max_chars - 200],
+            }
+        )
+
+    @staticmethod
     def _parse_tool_args(raw_args: str | None) -> dict[str, Any]:
         if not raw_args:
             return {}
@@ -288,7 +317,7 @@ class AIAgentService:
             "get_balance": "evm_get_balance",
             "multi_chain_balance": "compare_balances",
             "get_gas_price": "compare_chains",
-            "get_block_number": "evm_get_block",
+            "get_block_number": "evm_get_block_number",
             "get_chain_id": "get_chain_info",
             "get_transaction_count": "evm_call",
             "estimate_gas": "evm_estimate_gas",
@@ -300,7 +329,7 @@ class AIAgentService:
         if tool_name == "get_gas_price":
             args = {"chains": [args["chain"]]}
         if tool_name == "get_block_number":
-            args = {"chain": args["chain"], "block": "latest"}
+            args = {"chain": args["chain"]}
         if tool_name == "get_chain_id":
             args = {"chain": args["chain"]}
         if tool_name == "estimate_gas":

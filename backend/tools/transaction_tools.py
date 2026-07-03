@@ -601,10 +601,33 @@ def _unsupported_write_deferred(protocol: str, chain: str) -> dict[str, Any]:
     }
 
 
+async def evm_get_block_number(context: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """Lightweight latest block height — use this instead of evm_get_block for 'latest block' queries."""
+    chain = validate_chain_allowed(context, str(args["chain"]))
+    block_number = await context.rpc_client.get_block_number(chain)
+    return {"chain": chain, "block_number": block_number}
+
+
+def _summarize_evm_block(result: Any, *, full_transactions: bool) -> Any:
+    """eth_getBlockByNumber(false) still returns every tx hash; strip that for LLM-sized payloads."""
+    if full_transactions or not isinstance(result, dict):
+        return result
+    transactions = result.get("transactions")
+    if not isinstance(transactions, list):
+        return result
+    summary = {key: value for key, value in result.items() if key != "transactions"}
+    summary["transactionCount"] = len(transactions)
+    return summary
+
+
 async def evm_get_block(context: ToolContext, args: dict[str, Any]) -> Any:
     chain = validate_chain_allowed(context, str(args["chain"]))
     block = args.get("block", "latest")
-    return await context.rpc_client.call(chain, "eth_getBlockByNumber", [block, bool(args.get("full_transactions", False))])
+    full_transactions = bool(args.get("full_transactions", False))
+    result = await context.rpc_client.call(
+        chain, "eth_getBlockByNumber", [block, full_transactions]
+    )
+    return _summarize_evm_block(result, full_transactions=full_transactions)
 
 
 async def evm_get_transaction(context: ToolContext, args: dict[str, Any]) -> Any:
@@ -759,7 +782,18 @@ async def contract_call(context: ToolContext, args: dict[str, Any]) -> Any:
 
 
 READ_TOOLS = [
-    ("evm_get_block", "Get an EVM block by number/tag.", {"chain": {"type": "string"}, "block": {"type": "string"}, "full_transactions": {"type": "boolean"}}, ["chain"]),
+    (
+        "evm_get_block_number",
+        "Get the latest EVM block height (block number). Prefer this for 'latest block' or 'current block' questions.",
+        {"chain": {"type": "string"}},
+        ["chain"],
+    ),
+    (
+        "evm_get_block",
+        "Get EVM block header/details by number/tag. For only the block height, use evm_get_block_number instead.",
+        {"chain": {"type": "string"}, "block": {"type": "string"}, "full_transactions": {"type": "boolean"}},
+        ["chain"],
+    ),
     ("evm_get_transaction", "Get an EVM transaction by hash.", {"chain": {"type": "string"}, "tx_hash": {"type": "string"}}, ["chain", "tx_hash"]),
     ("evm_get_receipt", "Get an EVM transaction receipt by hash.", {"chain": {"type": "string"}, "tx_hash": {"type": "string"}}, ["chain", "tx_hash"]),
     ("evm_estimate_gas", "Estimate EVM gas for a transaction object.", {"chain": {"type": "string"}, "tx": {"type": "object"}}, ["chain", "tx"]),
@@ -773,6 +807,7 @@ READ_TOOLS = [
 ]
 
 EXECUTORS = {
+    "evm_get_block_number": evm_get_block_number,
     "evm_get_block": evm_get_block,
     "evm_get_transaction": evm_get_transaction,
     "evm_get_receipt": evm_get_receipt,

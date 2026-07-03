@@ -1,4 +1,6 @@
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+).replace(/\/+$/, "");
 
 // ─── Protocol grouping (shared across dashboard components) ─────────────────
 import type { ChainProtocol, ChainConfig } from "@/lib/constants";
@@ -307,7 +309,7 @@ export const api = {
       return request<ChatResponse>("/api/chat", {
         method: "POST",
         accessToken,
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(180_000),
         body: JSON.stringify({
           message,
           agent_id: agentId,

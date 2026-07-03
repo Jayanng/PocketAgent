@@ -18,6 +18,41 @@ NC='\033[0m' # No Color
 
 mkdir -p "$ROOT_DIR/tmp"
 
+# Prefer project venv uvicorn (README uses .venv; some setups use venv).
+resolve_uvicorn() {
+    if [ -x "$ROOT_DIR/backend/.venv/bin/uvicorn" ]; then
+        echo "$ROOT_DIR/backend/.venv/bin/uvicorn"
+    elif [ -x "$ROOT_DIR/backend/venv/bin/uvicorn" ]; then
+        echo "$ROOT_DIR/backend/venv/bin/uvicorn"
+    else
+        echo "uvicorn"
+    fi
+}
+
+UVICORN_BIN="$(resolve_uvicorn)"
+
+wait_for_health() {
+    curl -sf http://127.0.0.1:8000/health > /dev/null 2>&1
+}
+
+port_in_use() {
+    ss -tln 2>/dev/null | grep -q ':8000 ' || netstat -tln 2>/dev/null | grep -q ':8000 '
+}
+
+show_backend_failure() {
+    echo ""
+    echo -e "${RED}Backend failed to start.${NC}"
+    if [ -f "$BACKEND_LOG" ]; then
+        echo -e "${YELLOW}Last lines of $BACKEND_LOG:${NC}"
+        tail -20 "$BACKEND_LOG"
+    fi
+    echo ""
+    echo "Common fixes:"
+    echo "  1. cd backend && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
+    echo "  2. If port 8000 is busy: fuser -k 8000/tcp   (or stop the other terminal running start.sh)"
+    exit 1
+}
+
 cleanup() {
     echo ""
     echo -e "${YELLOW}Shutting down services...${NC}"
@@ -32,21 +67,51 @@ trap cleanup SIGINT SIGTERM
 # ---------- Backend ----------
 echo -e "${YELLOW}Starting backend (FastAPI)...${NC}"
 cd "$ROOT_DIR/backend"
-uvicorn main:app --reload --port 8000 --host 0.0.0.0 > "$BACKEND_LOG" 2>&1 &
-BACKEND_PID=$!
-echo "  PID: $BACKEND_PID"
 
-# Wait for backend to be healthy
-echo -n "  Waiting for backend"
-for i in $(seq 1 30); do
-    if curl -s http://127.0.0.1:8000/health > /dev/null 2>&1; then
-        echo ""
-        echo -e "  ${GREEN}Backend ready at http://localhost:8000${NC}"
-        break
+if wait_for_health; then
+    echo -e "  ${GREEN}Backend already running at http://localhost:8000${NC}"
+else
+    if port_in_use; then
+        echo -e "  ${RED}Port 8000 is in use but /health is not responding.${NC}"
+        echo "  Stop the stale process, then run start.sh again:"
+        echo "    fuser -k 8000/tcp"
+        show_backend_failure
     fi
-    echo -n "."
-    sleep 1
-done
+
+    if [ "$UVICORN_BIN" = "uvicorn" ]; then
+        echo -e "  ${YELLOW}Warning: backend virtualenv not found — using system uvicorn.${NC}"
+        echo -e "  ${YELLOW}Run: cd backend && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt${NC}"
+    else
+        echo "  Using: $UVICORN_BIN"
+    fi
+
+    "$UVICORN_BIN" main:app --reload --port 8000 --host 0.0.0.0 > "$BACKEND_LOG" 2>&1 &
+    BACKEND_PID=$!
+    echo "  PID: $BACKEND_PID"
+
+    # Wait for backend to be healthy
+    echo -n "  Waiting for backend"
+    BACKEND_READY=false
+    for i in $(seq 1 30); do
+        if wait_for_health; then
+            BACKEND_READY=true
+            echo ""
+            echo -e "  ${GREEN}Backend ready at http://localhost:8000${NC}"
+            break
+        fi
+        if [ -n "$BACKEND_PID" ] && ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+            echo ""
+            show_backend_failure
+        fi
+        echo -n "."
+        sleep 1
+    done
+
+    if [ "$BACKEND_READY" = false ]; then
+        echo ""
+        show_backend_failure
+    fi
+fi
 
 # ---------- Frontend ----------
 echo -e "${YELLOW}Starting frontend (Next.js)...${NC}"
@@ -55,6 +120,7 @@ cd "$ROOT_DIR/frontend"
 if [ ! -f .env ]; then
     echo "  Creating frontend/.env from root .env..."
     API_URL="${NEXT_PUBLIC_API_URL:-http://127.0.0.1:8000}"
+    API_URL="${API_URL%/}"
     WC_ID="$(grep '^NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=' "$ROOT_DIR/.env" 2>/dev/null | cut -d= -f2)"
     if [ -z "$WC_ID" ]; then
         WC_ID="b986e72a6fa82c645da36c67550760ee"

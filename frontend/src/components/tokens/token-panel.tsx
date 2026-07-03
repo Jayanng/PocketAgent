@@ -29,6 +29,15 @@ export function TokenPanel({
     // every StrictMode mount/unmount cycle.
     let clearTimer: ReturnType<typeof setTimeout> | null = null;
     const unsubscribe = tokenStore.onChange((e) => {
+      // "import" events carry multiple entries (no top-level agentId); react
+      // only if one of them matches this agent. Narrowing on e.type first
+      // keeps the subsequent e.agentId access type-safe for "set"/"forget".
+      if (e.type === "import") {
+        if (!e.entries.some((entry) => entry.agentId === agentId)) return;
+        setHasToken(true);
+        return;
+      }
+
       if (e.agentId !== agentId) return;
       setHasToken(e.type === "set");
       if (e.type === "set") {

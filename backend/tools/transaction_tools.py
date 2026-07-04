@@ -758,6 +758,16 @@ async def send_erc20(context: ToolContext, args: dict[str, Any]) -> dict[str, An
 async def contract_call(context: ToolContext, args: dict[str, Any]) -> Any:
     chain = validate_chain_allowed(context, str(args["chain"]))
     protocol = context.rpc_client.get_protocol(chain)
+    if protocol == "solana":
+        return await _contract_call_solana(context, chain, args)
+    if protocol == "cosmos":
+        return await _contract_call_cosmos(context, chain, args)
+    if protocol == "sui":
+        return await _contract_call_sui(context, chain, args)
+    if protocol == "near":
+        return await _contract_call_near(context, chain, args)
+    if protocol == "tron":
+        return await _contract_call_tron(context, chain, args)
     if protocol != "evm":
         return _unsupported_write_deferred(protocol, chain)
 
@@ -779,6 +789,335 @@ async def contract_call(context: ToolContext, args: dict[str, Any]) -> Any:
         context, chain, tx, value_native,
         tool_name="contract_call", original_tool_args=args,
     )
+
+
+async def _contract_call_solana(context: ToolContext, chain: str, args: dict[str, Any]) -> Any:
+    """Solana program call. Read = simulateTransaction; write = signed instruction."""
+    write = bool(args.get("write")) or str(args.get("mode") or "").lower() == "write"
+    program_id = str(args.get("contract_address") or args.get("program_id") or "")
+    if not program_id:
+        raise ValueError("contract_call on Solana requires contract_address (program_id).")
+
+    try:
+        from ..services.solana_spl_transfer import (
+            build_and_sign_versioned_transaction,
+            build_program_instruction,
+            decode_instruction_data,
+            load_solana_keypair,
+        )
+    except ImportError:
+        from services.solana_spl_transfer import (
+            build_and_sign_versioned_transaction,
+            build_program_instruction,
+            decode_instruction_data,
+            load_solana_keypair,
+        )
+
+    accounts = args.get("accounts") or []
+    if not isinstance(accounts, list):
+        raise ValueError("contract_call accounts must be a list of account metas.")
+    raw_data = str(args.get("data") or "")
+    data_bytes = decode_instruction_data(raw_data)
+
+    if not write:
+        # Read mode: simulate the instruction set without signing/broadcasting.
+        instruction_payload = {
+            "programId": program_id,
+            "accounts": accounts,
+            "data": list(data_bytes),
+        }
+        sim_args = [
+            {"instructions": [instruction_payload], "accountKeys": [str(a.get("pubkey", "")) for a in accounts]},
+            {"sigVerify": False, "replaceRecentBlockhash": True},
+        ]
+        return await context.rpc_client.call(chain, "simulateTransaction", sim_args)
+
+    private_key = _require_protocol_private_key(context, "solana")
+    keypair = load_solana_keypair(private_key)
+    instruction = build_program_instruction(program_id, data_bytes, accounts)
+    blockhash_resp = await context.rpc_client.call(chain, "getLatestBlockhash", [])
+    blockhash = blockhash_resp.get("value", {}).get("blockhash") if isinstance(blockhash_resp, dict) else None
+    if not blockhash:
+        raise RuntimeError("Failed to fetch Solana recent blockhash for signing.")
+    raw_tx = build_and_sign_versioned_transaction(keypair, [instruction], blockhash)
+    signature = await context.rpc_client.call(
+        chain, "sendTransaction", [raw_tx, {"encoding": "base64", "skipPreflight": False}]
+    )
+    if not isinstance(signature, str):
+        raise RuntimeError(f"Unexpected Solana sendTransaction response: {signature}")
+    _schedule_confirmation(context, chain, signature, tool_name="contract_call", original_tool_args=args)
+    return {
+        "status": "broadcast",
+        "chain": chain,
+        "protocol": "solana",
+        "from": str(keypair.pubkey()),
+        "tx_hash": signature,
+        "program_id": program_id,
+        "confirmation": "pending",
+    }
+
+
+async def _contract_call_cosmos(context: ToolContext, chain: str, args: dict[str, Any]) -> Any:
+    """CosmWasm contract call. Read = smart query; write = execute msg."""
+    contract_address = str(args["contract_address"])
+    write = bool(args.get("write")) or str(args.get("mode") or "").lower() == "write"
+    raw_msg = args.get("data") or args.get("msg")
+    if not raw_msg:
+        raise ValueError("contract_call on Cosmos requires a 'msg' (CosmWasm ExecuteMsg) or 'data' field.")
+    msg = _parse_json_msg(raw_msg)
+
+    try:
+        from ..services.cosmos_token_transfer import cosmos_cw20_query, execute_cosmos_contract_call
+    except ImportError:
+        from services.cosmos_token_transfer import cosmos_cw20_query, execute_cosmos_contract_call
+
+    private_key = _require_protocol_private_key(context, "cosmos")
+    if not write:
+        return await asyncio.to_thread(cosmos_cw20_query, chain, private_key, contract_address, msg)
+
+    gas = Decimal("0.01")
+    _enforce_spending_cap(context, chain, gas)
+    result = await asyncio.to_thread(
+        execute_cosmos_contract_call, chain, private_key, contract_address, msg
+    )
+    await _record_native_spend(context, chain, gas)
+    _schedule_confirmation(context, chain, result["tx_hash"], tool_name="contract_call", original_tool_args=args)
+    return {
+        "status": "broadcast",
+        "chain": chain,
+        "protocol": "cosmos",
+        "from": result["from"],
+        "tx_hash": result["tx_hash"],
+        "contract_address": contract_address,
+        "confirmation": "pending",
+    }
+
+
+
+async def _contract_call_sui(context: ToolContext, chain: str, args: dict[str, Any]) -> Any:
+    """SUI Move function call. Read = dev-inspect; write = signed move_call."""
+    write = bool(args.get("write")) or str(args.get("mode") or "").lower() == "write"
+    package = str(args.get("package_object_id") or args.get("contract_address") or "")
+    module = str(args.get("module") or "")
+    function = str(args.get("function") or "")
+    if not package or not module or not function:
+        raise ValueError("contract_call on SUI requires package_object_id, module, and function.")
+    target = f"{package}::{module}::{function}"
+    arguments = args.get("args") or args.get("arguments") or []
+    if not isinstance(arguments, list):
+        raise ValueError("contract_call on SUI requires arguments as a list.")
+    type_arguments = args.get("type_arguments") or []
+    if not isinstance(type_arguments, list):
+        type_arguments = []
+
+    try:
+        from ..services.sui_coin_transfer import execute_sui_move_call
+        from ..services.sui_transfer import sui_write_rpc_url
+    except ImportError:
+        from services.sui_coin_transfer import execute_sui_move_call
+        from services.sui_transfer import sui_write_rpc_url
+
+    keystring = _require_protocol_private_key(context, "sui")
+    rpc_url = sui_write_rpc_url(chain)
+    tracked_coins = context.agent.get("sui_tracked_coins") or []
+
+    if not write:
+        return await asyncio.to_thread(
+            execute_sui_move_call, rpc_url, keystring, target, arguments, type_arguments, tracked_coins,
+            inspect=True,
+        )
+
+    gas = Decimal("0.01")
+    _enforce_spending_cap(context, chain, gas)
+    result = await asyncio.to_thread(
+        execute_sui_move_call, rpc_url, keystring, target, arguments, type_arguments, tracked_coins,
+        inspect=False,
+    )
+    await _record_native_spend(context, chain, gas)
+    _schedule_confirmation(context, chain, result["tx_hash"], tool_name="contract_call", original_tool_args=args)
+    return {
+        "status": "broadcast",
+        "chain": chain,
+        "protocol": "sui",
+        "from": result["from"],
+        "tx_hash": result["tx_hash"],
+        "target": target,
+        "confirmation": "pending",
+    }
+
+
+
+async def _contract_call_near(context: ToolContext, chain: str, args: dict[str, Any]) -> Any:
+    """NEAR contract call. Read = view_function; write = function_call."""
+    contract_id = str(args["contract_address"])
+    method_name = str(args.get("abi_function") or args.get("function") or args.get("method_name") or "")
+    if not method_name:
+        raise ValueError("contract_call on NEAR requires abi_function (method_name).")
+    raw_args = args.get("data") or args.get("args") or args.get("msg") or {}
+    call_args = _parse_json_msg(raw_args)
+    write = bool(args.get("write")) or str(args.get("mode") or "").lower() == "write"
+    deposit_yocto = int(Decimal(str(args.get("value") or 0)) * (Decimal(10) ** 24))
+
+    private_key = _require_protocol_private_key(context, "near")
+    account_id = (context.agent.get("wallet_addresses") or {}).get("near")
+    if not account_id:
+        raise RuntimeError("NEAR agent wallet address is not configured.")
+
+    try:
+        from ..services.near_nep141_transfer import NEAR_RPC_URL, execute_near_contract_call
+    except ImportError:
+        from services.near_nep141_transfer import NEAR_RPC_URL, execute_near_contract_call
+
+    if not write:
+        # Read mode: use py_near view_function (read-only, no gas deposit).
+        def _view() -> Any:
+            import asyncio as _asyncio
+
+            async def _run() -> Any:
+                from py_near.account import Account
+
+                account = Account(str(account_id), private_key, rpc_addr=NEAR_RPC_URL)
+                try:
+                    await account.startup()
+                    result = await account.view_function(contract_id, method_name, call_args)
+                    return getattr(result, "result", result)
+                finally:
+                    await account.shutdown()
+
+            return _asyncio.run(_run())
+
+        return await asyncio.to_thread(_view)
+
+    gas = Decimal("0.001")
+    _enforce_spending_cap(context, chain, gas)
+    result = await asyncio.to_thread(
+        execute_near_contract_call,
+        str(account_id), private_key, contract_id, method_name, call_args, deposit_yocto,
+    )
+    await _record_native_spend(context, chain, gas)
+    _schedule_confirmation(
+        context, chain, result["tx_hash"], tool_name="contract_call",
+        original_tool_args=args, sender_account_id=str(account_id),
+    )
+    return {
+        "status": "broadcast",
+        "chain": chain,
+        "protocol": "near",
+        "from": result["from"],
+        "tx_hash": result["tx_hash"],
+        "contract_id": contract_id,
+        "method_name": method_name,
+        "confirmation": "pending",
+    }
+
+
+
+async def _contract_call_tron(context: ToolContext, chain: str, args: dict[str, Any]) -> Any:
+    """Tron smart-contract call. Read = triggerconstantcontract; write = triggersmartcontract."""
+    contract_address = str(args["contract_address"])
+    abi_function = str(args.get("abi_function") or "")
+    raw_data = str(args.get("data") or "")
+    call_args = args.get("args") or []
+    if not isinstance(call_args, list):
+        raise ValueError("contract_call args must be a list.")
+    write = bool(args.get("write")) or str(args.get("mode") or "").lower() == "write"
+
+    try:
+        from ..services.tron_trc20_transfer import (
+            DEFAULT_TRC20_FEE_LIMIT_SUN,
+            build_tron_call_data,
+            build_tron_call_parameter,
+            sign_tron_transaction,
+            tron_base58_from_private_key,
+        )
+    except ImportError:
+        from services.tron_trc20_transfer import (
+            DEFAULT_TRC20_FEE_LIMIT_SUN,
+            build_tron_call_data,
+            build_tron_call_parameter,
+            sign_tron_transaction,
+            tron_base58_from_private_key,
+        )
+
+    private_key = _require_protocol_private_key(context, "tron")
+    from_address = tron_base58_from_private_key(private_key)
+
+    # Resolve the call data. Raw data takes precedence; otherwise encode from abi_function.
+    if raw_data and raw_data != "0x":
+        data_hex = raw_data[2:] if raw_data.startswith("0x") else raw_data
+    elif abi_function:
+        data_hex = build_tron_call_data(abi_function, call_args)
+    else:
+        raise ValueError("contract_call on Tron requires abi_function or data.")
+
+    if not write:
+        # Read: triggerconstantcontract executes the call without broadcasting.
+        return await context.rpc_client.call(
+            chain,
+            "wallet/triggerconstantcontract",
+            [{
+                "owner_address": from_address,
+                "contract_address": contract_address,
+                "data": data_hex,
+                "visible": True,
+            }],
+        )
+
+    # Write: triggersmartcontract takes function_selector + parameter separately.
+    gas = Decimal("1")
+    _enforce_spending_cap(context, chain, gas)
+    parameter = build_tron_call_parameter(abi_function, call_args) if abi_function else data_hex
+    payload = {
+        "owner_address": from_address,
+        "contract_address": contract_address,
+        "function_selector": abi_function or "",
+        "parameter": parameter,
+        "call_value": 0,
+        "fee_limit": DEFAULT_TRC20_FEE_LIMIT_SUN,
+        "visible": True,
+    }
+    unsigned = await context.rpc_client.call(chain, "wallet/triggersmartcontract", [payload])
+    signed = sign_tron_transaction(unsigned, private_key)
+    broadcast = await context.rpc_client.call(chain, "wallet/broadcasttransaction", [signed])
+    if not isinstance(broadcast, dict) or not bool(broadcast.get("result")):
+        raise RuntimeError(f"Tron contract call broadcast failed: {broadcast}")
+    tx_hash = str(
+        broadcast.get("txid")
+        or (unsigned.get("transaction", {}) if isinstance(unsigned, dict) else {}).get("txID")
+        or ""
+    )
+    await _record_native_spend(context, chain, gas)
+    _schedule_confirmation(context, chain, tx_hash, tool_name="contract_call", original_tool_args=args)
+    return {
+        "status": "broadcast",
+        "chain": chain,
+        "protocol": "tron",
+        "from": from_address,
+        "tx_hash": tx_hash,
+        "contract_address": contract_address,
+        "confirmation": "pending",
+    }
+
+
+def _parse_json_msg(raw: Any) -> dict[str, Any]:
+    """Coerce a raw msg/args value into a dict for CosmWasm/NEAR calls."""
+    import json
+
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            return {"msg": text}
+        return {"msg": text}
+    return {}
+
 
 
 READ_TOOLS = [
@@ -857,7 +1196,7 @@ TOOLS.extend(
         register_tool(
             function_schema(
                 "contract_call",
-                "Call a contract. EVM read calls execute via eth_call and EVM writes are signed with the agent wallet.",
+                "Call a smart contract on any supported protocol (EVM, Solana, Cosmos CosmWasm, SUI Move, NEAR, Tron). Read calls execute without broadcasting; write calls are signed with the agent wallet and broadcast.",
                 {
                     "chain": {"type": "string"},
                     "contract_address": {"type": "string"},

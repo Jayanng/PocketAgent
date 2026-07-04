@@ -1,7 +1,7 @@
 """PocketAgent MCP Server.
 
-Exposes the 44 PocketAgent tools (32 read reimplemented from BlockchainQuery's
-surface + 12 custom), 5 resources, and 4 prompts over MCP stdio transport, so
+Exposes the 51 PocketAgent tools (32 read reimplemented from BlockchainQuery's
+surface + 19 custom, including 6 non-EVM token transfer tools), 5 resources, and 4 prompts over MCP stdio transport, so
 any MCP client (Claude Desktop, Codex) can drive Pocket Network directly.
 
 Architecture: the MCP server is a thin adapter over the existing
@@ -107,7 +107,7 @@ async def _build_context(args: dict[str, Any]) -> ToolContext:
 
 @server.list_tools()
 async def handle_list_tools() -> list[Tool]:
-    """Expose all 44 registered tools as MCP Tool objects."""
+    """Expose all 51 registered tools as MCP Tool objects."""
     return list_mcp_tools()
 
 
@@ -115,9 +115,10 @@ async def handle_list_tools() -> list[Tool]:
 async def handle_call_tool(name: str, arguments: dict | None) -> list[TextContent]:
     """Route an MCP tool call to the existing TOOL_REGISTRY executor.
 
-    All 44 tools are handled here — reads via the protocol dispatcher,
-    custom (compare/transact/analytics/pokt/wallet/simulation) via their
-    registered executors. Transact tools require agent_id in arguments.
+    All 51 tools are handled here — reads via the protocol dispatcher,
+    custom (compare/transact/analytics/pokt/wallet/simulation/non-evm-token)
+    via their registered executors. Transact tools require agent_id in
+    arguments.
     """
     args = dict(arguments or {})
     if name not in TOOL_REGISTRY:

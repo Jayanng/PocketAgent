@@ -1,10 +1,10 @@
 """MCP tool surface — converts the existing TOOL_REGISTRY into MCP Tool objects.
 
-The 44 tools (32 read reimplemented from BlockchainQuery's surface + 12 custom)
-are already implemented and registered in backend/tools/ with executors. The
-MCP server does NOT re-route them; it exposes the same registry as MCP Tool
-objects so any MCP client (Claude Desktop, Codex) sees the same surface the
-chat path uses. Zero routing drift.
+The 51 tools (32 read reimplemented from BlockchainQuery's surface + 19 custom,
+including 6 non-EVM token transfer tools) are already implemented and registered
+in backend/tools/ with executors. The MCP server does NOT re-route them; it
+exposes the same registry as MCP Tool objects so any MCP client (Claude Desktop,
+Codex) sees the same surface the chat path uses. Zero routing drift.
 
 Schema conversion: OpenAI function-call format
   { "type": "function", "function": { "name", "description", "parameters": {...} } }
@@ -68,7 +68,7 @@ def _mcp_input_schema(spec: Any) -> dict[str, Any]:
 
 
 def list_mcp_tools() -> list[Tool]:
-    """Return all 44 registered tools as MCP Tool objects, sorted by name."""
+    """Return all 51 registered tools as MCP Tool objects, sorted by name."""
     tools: list[Tool] = []
     for name in sorted(TOOL_REGISTRY):
         spec = TOOL_REGISTRY[name]
@@ -84,5 +84,5 @@ def list_mcp_tools() -> list[Tool]:
 
 
 def mcp_tool_names() -> list[str]:
-    """Sorted list of the 44 exposed MCP tool names (handy for docs/tests)."""
+    """Sorted list of the 51 exposed MCP tool names (handy for docs/tests)."""
     return [t.name for t in list_mcp_tools()]

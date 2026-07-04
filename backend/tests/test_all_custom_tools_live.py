@@ -1,4 +1,4 @@
-"""Test all 12 custom tools over MCP with a live agent in the database.
+"""Test all 19 custom tools over MCP with a live agent in the database.
 
 Steps:
 1. Starts the backend API (creates the SQLite DB)

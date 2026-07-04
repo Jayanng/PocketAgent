@@ -1,6 +1,6 @@
 # PocketAgent MCP Server
 
-The PocketAgent MCP (Model Context Protocol) server exposes **44 tools**, **5
+The PocketAgent MCP (Model Context Protocol) server exposes **51 tools**, **5
 resources**, and **4 prompts** over stdio, so any MCP-compatible client —
 Claude Desktop, Codex, Cursor, etc. — can drive Pocket Network's decentralized
 RPC across 52 chains directly.
@@ -13,15 +13,17 @@ BlockchainQuery (the PNF official MCP server, v2.1.2) is a Node.js MCP server
 distributed as a Claude Desktop Extension. It can't be imported into a Python
 backend, and it's **read-only**. PocketAgent reimplements its 32-tool read
 surface directly against Pocket Network RPC (via the protocol dispatcher in
-`pocket_rpc.py`) and adds **12 custom tools** — compare, guarded native writes
-for EVM/Solana/Tron/Cosmos/Sui/NEAR, analytics, POKT cost, compositional wallet
-analysis, and simulation — that BlockchainQuery does not provide. The MCP server
-makes all of this available to any AI client, not just PocketAgent's own chat UI.
+`pocket_rpc.py`) and adds **19 custom tools** — compare, guarded native writes
+for EVM/Solana/Tron/Cosmos/Sui/NEAR, non-EVM token transfers
+(SPL/TRC-20/CW20/IBC/NEP-141/SUI coin), analytics, POKT cost, compositional
+wallet analysis, and simulation — that BlockchainQuery does not provide. The
+MCP server makes all of this available to any AI client, not just PocketAgent's
+own chat UI.
 
 ## Architecture: single-layer adapter
 
 The MCP server is a **thin adapter** over `backend/tools/TOOL_REGISTRY`. All
-44 tools are already implemented there with executors, and the chat UI calls
+51 tools are already implemented there with executors, and the chat UI calls
 them via `execute_tool(name, ToolContext, args)`. The MCP server does **not**
 re-route tools — `call_tool` delegates to the same `execute_tool`. This keeps
 the tool surface identical across chat and MCP with zero routing drift.
@@ -37,7 +39,7 @@ MCP client (Claude Desktop / Codex)
            │ execute_tool(name, context, args)
            ▼
 ┌─────────────────────────────┐
-│  backend/tools/             │  44 tools (32 read + 12 custom), already built
+│  backend/tools/             │  51 tools (32 read + 19 custom), already built
 │  TOOL_REGISTRY              │
 └──────────┬──────────────────┘
            │ reads via protocol dispatcher
@@ -91,7 +93,7 @@ Add to `claude_desktop_config.json` (macOS:
 ```
 
 After saving, restart Claude Desktop. The `pocketagent` server appears under
-**Settings → Developer**, and all 44 tools, 5 resources, and 4 prompts become
+**Settings → Developer**, and all 51 tools, 5 resources, and 4 prompts become
 available to Claude.
 
 ## Configure with Codex / Codex CLI
@@ -129,7 +131,7 @@ For a JSON-style Codex config (`settings.json`):
 > server and ask: *"Use the analyze_wallet tool on 0xd8dA… across ethereum,
 > polygon, and arbitrum, then tell me the total USD value."*
 
-## Tools (44 total)
+## Tools (51 total)
 
 All tools return JSON text. Reads are protocol-dispatched (EVM/Solana/Cosmos/
 Sui/Near/Tron) and enriched with USD values where possible. Write tools
@@ -166,10 +168,16 @@ and contract writes are EVM-only.
 - `recommend_chain` — ranked best chain for an operation type
 - `estimate_transaction_cost` — gas + token cost before executing
 
-### Write — 3 tools (native multi-protocol; require `agent_id`)
+### Write — 9 tools (require `agent_id`)
 - `send_transaction` — native transfers on EVM, Solana, Tron, Cosmos, Sui, and NEAR
 - `send_erc20` — ERC-20 transfer on EVM only
-- `contract_call` — EVM read/write contract call
+- `contract_call` — read/write contract calls on EVM, Solana, Cosmos (CosmWasm), SUI (Move), NEAR, and Tron
+- `send_trc20_token` — TRC-20 token transfer on Tron
+- `send_spl_token` — SPL token transfer on Solana
+- `send_ibc_token` — IBC-denom token transfer on Cosmos chains
+- `send_cw20_token` — CW20 (CosmWasm) token transfer on Cosmos chains
+- `send_sui_token` — non-SUI coin type transfer on SUI
+- `send_nep141_token` — NEP-141 (NEAR fungible token) transfer
 
 ### Analytics — 3 tools
 - `get_relay_stats`, `get_relay_history`, `get_cost_breakdown`

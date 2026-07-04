@@ -2,7 +2,7 @@
 
 Spawns the MCP server as a subprocess and interacts with it over stdio
 using the MCP JSON-RPC protocol (same as Claude Desktop / Codex would).
-Verifies tools/list (44 tools), resources/list (5), prompts/list (4),
+Verifies tools/list (51 tools), resources/list (5), prompts/list (4),
 real tool calls (list_chains, get_chain_info), custom tool routing
 (estimate_relay_cost, compare_chains, get_relay_stats, analyze_wallet),
 error handling, and transaction guard (agent_id required for transact tools).
@@ -82,7 +82,7 @@ async def test_mcp_server_live() -> None:
         _check_ok(tools_resp, "tools/list")
         tools = tools_resp.get("result", {}).get("tools", [])
         tool_names = {t["name"] for t in tools}
-        assert len(tools) == 44, f"Expected 44 tools, got {len(tools)}"
+        assert len(tools) == 51, f"Expected 51 tools, got {len(tools)}"
         for expected in [
             "list_chains", "evm_get_balance", "solana_get_balance",
             "compare_chains", "recommend_chain", "send_transaction",

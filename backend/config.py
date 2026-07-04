@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o"
+    # Generation tuning — a lower temperature plus a capped max_tokens yields
+    # crisper, faster replies. Override via env (OPENAI_TEMPERATURE /
+    # OPENAI_MAX_TOKENS) without touching code.
+    openai_temperature: float = 0.3
+    openai_max_tokens: int = 1024
+    # Number of prior messages replayed as context each turn. A smaller window
+    # means a smaller prompt → faster time-to-first-token and lower cost.
+    chat_history_limit: int = 20
     gmi_api_key: str = ""
     # Pocket Network RPC Endpoints (Shannon, post June 2025)
     # Format: https://{chain-slug}.api.pocket.network

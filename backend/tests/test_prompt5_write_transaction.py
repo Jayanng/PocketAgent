@@ -65,6 +65,10 @@ class _WriteFakeRPC:
             }
         if chain == "tron" and method == "wallet/broadcasttransaction":
             return {"result": True, "txid": "tron-tx-hash-123"}
+        if chain == "tron" and method == "wallet/triggerconstantcontract":
+            return {"result": True, "constant_result": ["0000000000000000000000000000000000000000000000000000000000000001"]}
+        if chain == "tron" and method == "wallet/triggersmartcontract":
+            return {"transaction": {"txID": "ab" * 32, "raw_data": {"contract": []}}, "result": True}
         raise AssertionError(f"unexpected RPC call: {chain}.{method} {params}")
 
     async def send_raw_transaction(self, chain: str, raw_tx: str) -> str:
@@ -366,7 +370,7 @@ class NonEVMWriteTransactionTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rpc.calls, [])
         self.assertEqual(rpc.sent_raw, [])
 
-    async def test_non_evm_token_and_contract_writes_defer_without_broadcast(self) -> None:
+    async def test_send_erc20_still_defers_for_non_evm(self) -> None:
         ctx, rpc = _context(["solana", "tron"])
 
         token_result = await send_erc20(
@@ -378,22 +382,31 @@ class NonEVMWriteTransactionTestCase(unittest.IsolatedAsyncioTestCase):
                 "amount": "1",
             },
         )
+
+        # send_erc20 is EVM-only; non-EVM chains still return deferred.
+        self.assertEqual(token_result["status"], "deferred")
+        self.assertEqual(rpc.calls, [])
+        self.assertEqual(rpc.sent_raw, [])
+
+    @patch("backend.tools.transaction_tools.decrypt_private_key", side_effect=_decrypt_side_effect)
+    async def test_contract_call_dispatches_to_tron_read(self, mock_decrypt) -> None:
+        ctx, rpc = _context(["solana", "tron"])
+
+        # contract_call on Tron now dispatches (read mode) instead of returning deferred.
         contract_result = await contract_call(
             ctx,
             {
                 "chain": "tron",
                 "contract_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
-                "abi_function": "transfer",
-                "args": [],
-                "data": "a9059cbb",
-                "value": "1",
+                "abi_function": "balanceOf(address)",
+                "args": ["TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"],
             },
         )
 
-        self.assertEqual(token_result["status"], "deferred")
-        self.assertEqual(contract_result["status"], "deferred")
-        self.assertEqual(rpc.calls, [])
-        self.assertEqual(rpc.sent_raw, [])
+        # Read mode returns the constant_result from triggerconstantcontract.
+        self.assertIsInstance(contract_result, dict)
+        self.assertNotEqual(contract_result.get("status"), "deferred")
+        self.assertTrue(any(c[1] == "wallet/triggerconstantcontract" for c in rpc.calls))
 
 
 if __name__ == "__main__":

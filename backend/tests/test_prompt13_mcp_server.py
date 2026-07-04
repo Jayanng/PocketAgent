@@ -100,9 +100,9 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         self._auth_env.__exit__(None, None, None)
 
-    def test_list_tools_exposes_all_44_with_object_input_schema(self) -> None:
+    def test_list_tools_exposes_all_51_with_object_input_schema(self) -> None:
         tools = list_mcp_tools()
-        self.assertEqual(len(tools), 44)
+        self.assertEqual(len(tools), 51)
         names = {t.name for t in tools}
         # Spot-check across categories: read (evm/solana/cosmos/sui/near/cross),
         # compare, write, analytics, pokt, compositional, simulation.
@@ -113,6 +113,8 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
             "resolve_domain", "compare_balances", "convert_units",
             "compare_chains", "recommend_chain", "estimate_transaction_cost",
             "send_transaction", "send_erc20", "contract_call",
+            "send_trc20_token", "send_spl_token", "send_ibc_token",
+            "send_cw20_token", "send_sui_token", "send_nep141_token",
             "get_relay_stats", "get_relay_history", "get_cost_breakdown",
             "estimate_relay_cost", "analyze_wallet", "simulate_transaction",
         ]:
@@ -144,7 +146,7 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
     def test_mcp_tool_names_is_sorted_and_complete(self) -> None:
         names = mcp_tool_names()
         self.assertEqual(names, sorted(names))
-        self.assertEqual(len(names), 44)
+        self.assertEqual(len(names), 51)
 
     # ── call_tool routing (read + custom, via the real handler) ──────────────
 
@@ -366,7 +368,7 @@ class Prompt13MCPServerTestCase(unittest.TestCase):
     # ── Handler wrappers (smoke: they delegate to the same functions) ─────────
 
     def test_handle_list_tools_and_resources_and_prompts_delegate(self) -> None:
-        self.assertEqual(len(self._run(handle_list_tools())), 44)
+        self.assertEqual(len(self._run(handle_list_tools())), 51)
         self.assertEqual(len(self._run(handle_list_resources())), 5)
         self.assertEqual(len(self._run(handle_list_prompts())), 4)
 

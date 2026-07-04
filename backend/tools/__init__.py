@@ -12,6 +12,7 @@ from . import compare_tools as compare_tools
 from . import pokt_tools as pokt_tools
 from . import simulation_tools as simulation_tools
 from . import token_tools as token_tools
+from . import token_transfer_tools as token_transfer_tools
 from . import transaction_tools as transaction_tools
 from . import wallet_tools as wallet_tools
 

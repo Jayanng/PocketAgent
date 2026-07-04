@@ -19,14 +19,19 @@ NC='\033[0m' # No Color
 mkdir -p "$ROOT_DIR/tmp"
 
 # Prefer project venv uvicorn (README uses .venv; some setups use venv).
+# Checks both Unix (bin/) and Windows (Scripts/) venv layouts.
 resolve_uvicorn() {
-    if [ -x "$ROOT_DIR/backend/.venv/bin/uvicorn" ]; then
-        echo "$ROOT_DIR/backend/.venv/bin/uvicorn"
-    elif [ -x "$ROOT_DIR/backend/venv/bin/uvicorn" ]; then
-        echo "$ROOT_DIR/backend/venv/bin/uvicorn"
-    else
-        echo "uvicorn"
-    fi
+    for candidate in \
+        "$ROOT_DIR/backend/.venv/bin/uvicorn" \
+        "$ROOT_DIR/backend/.venv/Scripts/uvicorn.exe" \
+        "$ROOT_DIR/backend/venv/bin/uvicorn" \
+        "$ROOT_DIR/backend/venv/Scripts/uvicorn.exe"; do
+        if [ -n "$candidate" ] && { [ -x "$candidate" ] || [ -f "$candidate" ]; }; then
+            echo "$candidate"
+            return
+        fi
+    done
+    echo "uvicorn"
 }
 
 UVICORN_BIN="$(resolve_uvicorn)"
@@ -49,7 +54,10 @@ show_backend_failure() {
     echo ""
     echo "Common fixes:"
     echo "  1. cd backend && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
-    echo "  2. If port 8000 is busy: fuser -k 8000/tcp   (or stop the other terminal running start.sh)"
+    echo "  2. If port 8000 is busy, stop the other terminal running start.sh, or kill the process holding it:"
+    echo "       Linux/macOS : fuser -k 8000/tcp"
+    echo "       Windows PS  : Get-NetTCPConnection -LocalPort 8000 | Stop-Process -Id { $_.OwningProcess }"
+    echo "       Git-Bash    : netstat -ano | grep ':8000'   (then: taskkill /F /PID <pid>)"
     exit 1
 }
 
@@ -74,7 +82,9 @@ else
     if port_in_use; then
         echo -e "  ${RED}Port 8000 is in use but /health is not responding.${NC}"
         echo "  Stop the stale process, then run start.sh again:"
-        echo "    fuser -k 8000/tcp"
+        echo "    Linux/macOS : fuser -k 8000/tcp"
+        echo "    Windows PS  : Stop-Process -Id (Get-NetTCPConnection -LocalPort 8000).OwningProcess -Force"
+        echo "    Git-Bash    : netstat -ano | grep ':8000'   (then: taskkill /F /PID <pid>)"
         show_backend_failure
     fi
 

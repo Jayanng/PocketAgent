@@ -1,3 +1,4 @@
+import ast
 import json
 from contextlib import asynccontextmanager
 from typing import Any
@@ -110,7 +111,7 @@ class AIAgentService:
                 tokens_used=0,
             )
 
-            history = await list_messages(db, conversation_id=conversation_id, limit=50)
+            history = await list_messages(db, conversation_id=conversation_id, limit=self.settings.chat_history_limit)
             messages = self._build_openai_messages(agent=agent, history=history)
             tools = self.get_tool_definitions(agent)
 
@@ -119,6 +120,8 @@ class AIAgentService:
                 messages=messages,
                 tools=tools if tools else None,
                 tool_choice="auto" if tools else None,
+                temperature=self.settings.openai_temperature,
+                max_tokens=self.settings.openai_max_tokens,
             )
 
             first_message = first.choices[0].message
@@ -168,6 +171,8 @@ class AIAgentService:
                 second = await self.openai_client.chat.completions.create(
                     model=self.model,
                     messages=second_messages,
+                    temperature=self.settings.openai_temperature,
+                    max_tokens=self.settings.openai_max_tokens,
                 )
                 second_message = second.choices[0].message
                 final_text = second_message.content or final_text
@@ -223,7 +228,18 @@ class AIAgentService:
             "estimate finality yourself, and do NOT tell the user to ask again — "
             "the confirmation message is already being polled in the background. "
             "Include the ``tx_hash`` and, if present in the tool result, the "
-            "block explorer URL the user can open right now to watch progress."
+            "block explorer URL the user can open right now to watch progress.\n\n"
+            "Response style: be concise and direct. Lead with the answer, use "
+            "short paragraphs or bullet points, and avoid filler or restating "
+            "the question. Keep replies tight — the user wants signal, not prose.\n\n"
+            "CRITICAL — NO HALLUCINATED DATA: You have ZERO knowledge of current "
+            "balances, gas prices, or block times — these change every block. You "
+            "MUST call a tool (compare_chains, compare_balances, evm_get_balance, "
+            "etc.) for ANY question about live blockchain metrics. NEVER state a "
+            "numeric balance, gas price, fee, or block time unless that exact value "
+            "came from a tool result in THIS conversation. If an address is needed "
+            "and you don't have one, ask the user for it. Guessing, approximating, "
+            "or inventing blockchain data is strictly forbidden."
         )
 
     def get_tool_definitions(self, agent: dict[str, Any]) -> list[dict[str, Any]]:
@@ -300,6 +316,30 @@ class AIAgentService:
         )
 
     @staticmethod
+    def _normalize_args(args: dict[str, Any]) -> dict[str, Any]:
+        """Coerce Python-repr strings that smaller models emit for array/dict
+        parameters (e.g. ``"['ethereum', 'polygon']"``) into real lists/dicts
+        so tools receive the types they expect."""
+        def _coerce(value: Any) -> Any:
+            if isinstance(value, str) and len(value) >= 2 and value[0] in "[{" and value[-1] in "]}":
+                try:
+                    evaluated = ast.literal_eval(value)
+                    if isinstance(evaluated, (list, dict)):
+                        return evaluated
+                except (ValueError, SyntaxError):
+                    pass
+            return value
+
+        def _walk(obj: Any) -> Any:
+            if isinstance(obj, dict):
+                return {k: _walk(_coerce(v)) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_walk(_coerce(v)) for v in obj]
+            return obj
+
+        return _walk(args)
+
+    @staticmethod
     def _parse_tool_args(raw_args: str | None) -> dict[str, Any]:
         if not raw_args:
             return {}
@@ -309,7 +349,7 @@ class AIAgentService:
             raise ValueError(f"Invalid tool JSON arguments: {exc}") from exc
         if not isinstance(parsed, dict):
             raise ValueError("Tool arguments must be a JSON object.")
-        return parsed
+        return AIAgentService._normalize_args(parsed)
 
     @staticmethod
     def _normalize_tool_call(tool_name: str, args: dict[str, Any]) -> tuple[str, dict[str, Any]]:

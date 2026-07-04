@@ -158,18 +158,21 @@ PocketAgent interfaces with **52 production networks** across six major protocol
 
 ## Tool Categories
 
-PocketAgent features **44 predefined tools** exposed to the LLM agent and MCP interface:
+PocketAgent features **51 predefined tools** exposed to the LLM agent and MCP interface:
 
-1. **Read-only State**: `evm_get_balance`, `solana_get_balance`, `cosmos_get_balance`, `evm_get_block`, `list_chains`.
-2. **Comparison Engines**: Gas fee comparison, network latency check, chain recommendation models.
-3. **Transaction Execution**: `send_transaction`, `send_erc20`, `contract_call` (native writes on EVM, Solana, Tron, Cosmos, Sui, and NEAR; ERC-20 and contract writes are EVM-only).
-4. **Analytics & Metrics**: Wallet analysis, Pocket Network stats, relay performance metrics.
+1. **Read-only State** (32 tools): Balances, blocks, transactions, logs across all 6 protocol families.
+2. **Comparison Engines** (3 tools): Gas fee comparison, network latency check, chain recommendation models.
+3. **Transaction Execution** (9 tools): `send_transaction` (native multi-protocol), `send_erc20` (EVM), `contract_call` (multi-protocol read/write), plus 6 non-EVM token transfer tools (SPL, TRC-20, CW20, IBC, NEP-141, SUI coin).
+4. **Analytics & Metrics** (3 tools): Pocket Network stats, relay performance metrics.
+5. **Simulation** (1 tool): Dry-run transactions before broadcasting (EVM, Solana, Tron, Cosmos, Sui, NEAR).
+6. **Wallet Analysis** (1 tool): Comprehensive multi-chain portfolio report.
+7. **POKT Cost** (1 tool): Estimated relay cost.
 
 ---
 
 ## Model Context Protocol (MCP) Integration
 
-The backend serves as a standalone MCP server, enabling LLMs in external clients (such as Claude Desktop, Cursor, or Codex) to execute the 44 blockchain tools natively.
+The backend serves as a standalone MCP server, enabling LLMs in external clients (such as Claude Desktop, Cursor, or Codex) to execute the 51 blockchain tools natively.
 
 From the `backend` folder:
 ```bash
@@ -235,7 +238,8 @@ This project was built with assistance from AI coding tools, including **Cursor*
 ## Known Limitations
 
 - **Radix** is not supported. Pocket Network does not expose a public Radix RPC endpoint, so Radix read/write tools were removed from the MCP tool registry.
-- **ERC-20 and contract writes** are EVM-only. Other protocol families support native transfers via `send_transaction`.
+- **ERC-20 transfers** are EVM-only. Non-EVM protocols have dedicated token transfer tools: `send_spl_token` (Solana), `send_trc20_token` (Tron), `send_ibc_token` / `send_cw20_token` (Cosmos), `send_sui_token` (SUI), `send_nep141_token` (NEAR).
+- **`contract_call`** now supports all 6 protocol families: EVM, Solana, Cosmos (CosmWasm), SUI (Move), NEAR, and Tron — both read and write modes.
 - **Sui writes** (`send_transaction`) use Pocket Network RPC exclusively after initial wallet funding: gas estimation (`sui_dryRunTransactionBlock`), object refresh (`sui_getObject`), signing, and broadcast (`sui_executeTransactionBlock`) all go through `sui.api.pocket.network`. Coin objects are tracked locally per agent (`sui_tracked_coins`); Pocket's indexed list methods (`suix_getCoins`, `suix_getOwnedObjects`, and legacy `sui_getOwnedObjects`) are unavailable (`Index store not available` / `Method not found`). A **one-time Mysten fullnode bootstrap** (`suix_getCoins` only, when an agent has zero tracked coins) seeds the local index; subsequent sends refresh known coin IDs via Pocket `sui_getObject` and update the index from transaction effects.
 
 ---

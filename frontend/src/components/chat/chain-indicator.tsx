@@ -47,6 +47,9 @@ export function ChainIndicator({ chains, isLoading = false, compact = false }: C
           title={CHAIN_CONFIGS[chain as keyof typeof CHAIN_CONFIGS]?.name ?? chain}
         >
           {labelForChain(chain)}
+          <span className="ml-1 shrink-0 rounded bg-green-500/10 px-1 py-0 text-[7px] font-semibold tracking-widest text-green-500/80">
+            MAINNET
+          </span>
         </span>
       ))}
       {chains.length > visibleChains.length && (

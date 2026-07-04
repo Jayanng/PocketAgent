@@ -27,6 +27,31 @@ def parse_csv_setting(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+# Known testnet chain names that PocketAgent should reject.
+# These are network names users sometimes type into the chat; the AI should
+# not attempt to route them through mainnet RPC endpoints.
+TESTNET_CHAIN_NAMES: set[str] = {
+    # EVM testnets
+    "sepolia", "goerli", "holesky", "hoodi", "mumbai", "amoy",
+    "fuji", "avalanche-fuji", "chapel", "bsc-testnet",
+    "base-sepolia", "optimism-sepolia", "arbitrum-sepolia",
+    "polygon-amoy", "linea-sepolia", "scroll-sepolia",
+    "zksync-sepolia", "blast-sepolia", "berachain-artio",
+    "berachain-bartio", "taiko-hekla", "unichain-sepolia",
+    # Solana
+    "solana-devnet", "solana-testnet", "devnet",
+    # Sui
+    "sui-testnet", "sui-devnet",
+    # NEAR
+    "near-testnet", "near-betanet",
+    # Tron
+    "tron-shasta", "shasta", "tron-nile", "nile",
+    # Cosmos testnets
+    "osmo-testnet", "osmo-test-5", "osmo-test-4",
+    "cosmos-testnet", "theta-testnet",
+}
+
+
 class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"

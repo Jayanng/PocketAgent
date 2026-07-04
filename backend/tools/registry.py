@@ -12,6 +12,30 @@ Capability = Literal["read", "compare", "transact", "analytics"]
 ToolExecutor = Callable[["ToolContext", dict[str, Any]], Awaitable[Any]]
 
 
+def is_testnet_chain(chain: str) -> bool:
+    """Check if a chain name matches a known testnet.
+
+    PocketAgent is mainnet-only. This function is used to reject testnet
+    chain names before they reach any RPC endpoint. It checks:
+    - Direct membership in the TESTNET_CHAIN_NAMES set
+    - Contains known testnet substrings like "testnet", "devnet"
+    - Known testnet chain slugs like "sepolia", "goerli"
+    """
+    try:
+        from ..config import TESTNET_CHAIN_NAMES
+    except ImportError:
+        from config import TESTNET_CHAIN_NAMES
+
+    normalized = chain.strip().lower().replace("_", "-")
+    if normalized in TESTNET_CHAIN_NAMES:
+        return True
+    # Also catch variants the hard-coded set might miss.
+    for keyword in ("testnet", "devnet", "betanet"):
+        if keyword in normalized:
+            return True
+    return False
+
+
 @dataclass
 class ToolContext:
     agent: dict[str, Any]
@@ -103,6 +127,13 @@ def _unavailable_result(name: str, args: dict[str, Any], exc: Exception) -> dict
 
 
 def validate_chain_allowed(context: ToolContext, chain: str) -> str:
+    if is_testnet_chain(chain):
+        raise ValueError(
+            f"PocketAgent only supports mainnet chains. "
+            f"'{chain}' is a testnet network. "
+            "If you want to check a mainnet balance, use the mainnet chain name "
+            "(e.g. 'ethereum' instead of 'sepolia')."
+        )
     allowed_chains = set(context.agent.get("chains") or [])
     if allowed_chains and chain not in allowed_chains:
         raise ValueError(f"Chain '{chain}' is not enabled for this agent.")

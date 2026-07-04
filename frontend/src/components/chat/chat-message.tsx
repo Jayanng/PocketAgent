@@ -228,6 +228,9 @@ export function ChatMessage({ message, loading = false }: ChatMessageProps) {
                   title={config?.name ?? chain}
                 >
                   {config?.symbol ?? chain.slice(0, 4).toUpperCase()}
+                  <span className="ml-1 shrink-0 rounded bg-green-500/10 px-1 py-0 text-[7px] font-semibold tracking-widest text-green-500/80">
+                    MAINNET
+                  </span>
                 </span>
               );
             })}

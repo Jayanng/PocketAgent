@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Arbitrum">
+  <circle cx="32" cy="32" r="31" fill="#28A0F0"/>
+  <path d="M16 48L20 40L44 20H36L16 40V48Z" fill="#ffffff" opacity="0.95"/>
+  <path d="M48 16L42 24L24 42H32L48 24V16Z" fill="#ffffff" opacity="0.85"/>
+  <path d="M16 40L24 28L20 40L16 48V40Z" fill="#ffffff" opacity="0.65"/>
+</svg>

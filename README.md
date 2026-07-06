@@ -306,6 +306,8 @@ Agent-scoped endpoints require the `X-Agent-Access-Token` header.
 
 The LLM has access to **51 tools** across 10 modules. Each tool is a typed function the agent can call autonomously.
 
+The 32 read tools build on the foundation laid by **BlockchainQuery**, the official PNF MCP server, reimplemented against Pocket Network RPC. PocketAgent extends this base with **19 additional custom tools** — chain comparison, guarded multi-protocol writes, non-EVM token transfers, transaction simulation, portfolio analysis, POKT cost estimation, and analytics.
+
 | Module | Tools | What it does |
 | :--- | ---: | :--- |
 | `balance_tools` | 6 | Native balance queries across EVM, Solana, Cosmos, SUI + cross-chain comparison + unit conversion |

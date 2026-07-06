@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAccount } from "wagmi";
 import {
+  BookOpen,
   Bot,
   Gauge,
   Menu,
@@ -25,6 +26,7 @@ const navItems = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
   { href: "/agents", label: "Agents", icon: Bot },
+  { href: "/docs", label: "Docs", icon: BookOpen },
 ] as const;
 
 function navLinkClassName(isActive: boolean, isLanding: boolean, size: "desktop" | "mobile") {

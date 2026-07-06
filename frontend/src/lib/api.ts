@@ -297,6 +297,41 @@ async function request<T>(path: string, init?: RequestInit & { accessToken?: str
   return response.json() as Promise<T>;
 }
 
+/**
+ * Parses a single SSE event block (the text between two `\n\n` separators)
+ * into a structured `{ event, data }` payload. Returns null for comment-only
+ * blocks (heartbeat ticks like `: keepalive`) or malformed input.
+ *
+ * Spec-compliant behavior:
+ *  - `:`-prefixed lines are comments and skipped.
+ *  - The token after `event:` is the event name (no spaces).
+ *  - The token after `data:` is the data line; multi-line `data:` fields are
+ *    joined with `\n` per the SSE spec before JSON parsing.
+ *  - A leading single space after the colon is stripped (per the SSE spec).
+ */
+function parseSseBlock(block: string): { event: string; data: unknown } | null {
+  if (!block || block.startsWith(":")) return null;
+  const lines = block.split("\n");
+  let eventType: string | undefined;
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith(":")) continue;
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) continue;
+    const field = line.slice(0, colonIdx);
+    let value = colonIdx + 1 < line.length ? line.slice(colonIdx + 1) : "";
+    if (value.startsWith(" ")) value = value.slice(1);
+    if (field === "event") eventType = value;
+    else if (field === "data") dataLines.push(value);
+  }
+  if (!eventType || dataLines.length === 0) return null;
+  try {
+    return { event: eventType, data: JSON.parse(dataLines.join("\n")) };
+  } catch {
+    return null;
+  }
+}
+
 export const api = {
   chat: {
     sendMessage(
@@ -318,6 +353,85 @@ export const api = {
         }),
       });
     },
+
+    /**
+     * Streaming variant that consumes the `POST /api/chat/stream` SSE response.
+     * The non-streaming `sendMessage` above is kept for callers that want a one-shot
+     * result (notably any code paths that have not yet migrated to streaming).
+     *
+     * The parser splits on `\n\n` to read complete SSE blocks, dispatches `event:` /
+     * `data:` lines, and skips comment lines (`: keepalive`). Each block becomes
+     * one `onEvent({ event, data })` call. Errors from the server arrive as an
+     * `event: error` block before the stream closes; transport-level failures
+     * throw via `fetch` rejection.
+     */
+    async streamMessage(params: {
+      message: string;
+      agentId: string;
+      conversationId: string | null;
+      connectedWalletAddress: string | null;
+      accessToken: string | null;
+      onEvent: (event: { event: string; data: Record<string, unknown> }) => void;
+      signal?: AbortSignal;
+    }): Promise<void> {
+      const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(params.accessToken
+            ? { "X-Agent-Access-Token": params.accessToken }
+            : {}),
+        },
+        body: JSON.stringify({
+          message: params.message,
+          agent_id: params.agentId,
+          conversation_id: params.conversationId,
+          connected_wallet_address: params.connectedWalletAddress,
+        }),
+        signal: params.signal ?? AbortSignal.timeout(180_000),
+      });
+
+      if (!response.ok) {
+        let detail = `Request failed with ${response.status}`;
+        try {
+          const body = (await response.json()) as { detail?: string };
+          detail = body.detail || detail;
+        } catch {
+          /* keep status-only fallback. */
+        }
+        if (response.status >= 500) {
+          emitApiError({
+            message: detail,
+            actionLabel: "Retry",
+            actionOnClick: () => window.location.reload(),
+          });
+        }
+        throw new Error(detail);
+      }
+
+      const reader = response.body
+        ?.pipeThrough(new TextDecoderStream())
+        .getReader();
+      if (!reader) throw new Error("Streaming response body not available");
+
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += value;
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary !== -1) {
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const parsed = parseSseBlock(block);
+          if (parsed) {
+            params.onEvent({ event: parsed.event, data: parsed.data });
+          }
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+    },
+
     getConversations(agentId: string, accessToken = getAgentAccessToken(agentId)) {
       return request<Conversation[]>(`/api/conversations?agent_id=${encodeURIComponent(agentId)}`, { accessToken });
     },

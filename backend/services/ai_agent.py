@@ -1,5 +1,7 @@
+import asyncio
 import ast
 import json
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -192,6 +194,249 @@ class AIAgentService:
                 "conversation_id": conversation_id,
                 "message": assistant_row,
             }
+
+    async def stream_chat(
+        self,
+        message: str,
+        agent_id: str,
+        conversation_id: str | None = None,
+        connected_wallet_address: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Streaming version of `chat()`.
+
+        Yields SSE-shaped dicts in this exact order:
+          {"event": "start",            "conversation_id": str}
+          {"event": "text_delta",       "text": str}
+          {"event": "tool_calls_start", "count": int}            (only if the model emitted tools)
+          {"event": "tool_call",        "id": str, "name": str, "args": dict}
+          {"event": "tool_result",      "id": str, "name": str, "result": Any}
+          {"event": "final",            "conversation_id": str, "message": <db row>, "tokens_used": int}
+
+        Errors surface as {"event": "error", "code": str, "detail": str, ...} before the
+        generator returns; the FastAPI StreamingResponse wrapper emits them as-is.
+        """
+        async with self._connect_db() as db:
+            self._active_db = db
+            agent = await get_agent(db, agent_id)
+            if agent is None:
+                yield {"event": "error", "code": "agent_not_found", "detail": f"Agent not found: {agent_id}"}
+                return
+            if not agent.get("is_active", True):
+                yield {"event": "error", "code": "agent_inactive", "detail": f"Agent is inactive: {agent_id}"}
+                return
+            if connected_wallet_address:
+                agent = {**agent, "connected_wallet_address": connected_wallet_address}
+
+            if conversation_id is None:
+                conversation = await create_conversation(db, agent_id=agent_id, title=message[:80])
+                conversation_id = str(conversation["id"])
+            else:
+                conversation = await get_conversation(db, conversation_id)
+                if conversation is None:
+                    yield {"event": "error", "code": "conversation_not_found", "detail": f"Conversation not found: {conversation_id}"}
+                    return
+                if conversation.get("agent_id") != agent_id:
+                    yield {"event": "error", "code": "wrong_agent", "detail": "Conversation does not belong to this agent."}
+                    return
+            self._active_conversation_id = conversation_id
+
+            if not self.api_key:
+                yield {"event": "error", "code": "no_api_key", "detail": "GMI_API_KEY or OPENAI_API_KEY is not configured."}
+                return
+
+            yield {"event": "start", "conversation_id": conversation_id}
+
+            await create_message(
+                db=db,
+                conversation_id=conversation_id,
+                role="user",
+                content=message,
+                chain_calls=[],
+                tokens_used=0,
+            )
+
+            history = await list_messages(
+                db, conversation_id=conversation_id, limit=self.settings.chat_history_limit
+            )
+            messages = self._build_openai_messages(agent=agent, history=history)
+            tools = self.get_tool_definitions(agent)
+
+            # ---------- First LLM stream ----------
+            accumulated_text = ""
+            accumulated_tool_calls: dict[int, dict[str, Any]] = {}
+            total_tokens = 0
+            async for evt in self._stream_completion(messages=messages, tools=tools):
+                kind = evt["kind"]
+                if kind == "delta":
+                    accumulated_text += evt["text"]
+                    yield {"event": "text_delta", "text": evt["text"]}
+                elif kind == "tool_call_delta":
+                    idx = int(evt["index"])
+                    slot = accumulated_tool_calls.setdefault(
+                        idx, {"id": "", "name": "", "arguments": ""}
+                    )
+                    if evt.get("id"):
+                        slot["id"] = evt["id"]
+                    if evt.get("name"):
+                        slot["name"] = evt["name"]
+                    if evt.get("arguments"):
+                        slot["arguments"] += evt["arguments"]
+                elif kind == "usage":
+                    total_tokens += int(evt.get("total_tokens", 0))
+
+            # ---------- Parallel tool execution ----------
+            chain_calls: list[dict[str, Any]] = []
+            if accumulated_tool_calls:
+                yield {"event": "tool_calls_start", "count": len(accumulated_tool_calls)}
+
+                ordered: list[dict[str, Any]] = []
+                tasks: list[asyncio.Task[Any]] = []
+                for idx in sorted(accumulated_tool_calls.keys()):
+                    tc = accumulated_tool_calls[idx]
+                    try:
+                        fn_args = self._parse_tool_args(tc["arguments"] or "{}")
+                    except ValueError as exc:
+                        yield {
+                            "event": "error",
+                            "code": "bad_tool_args",
+                            "tool": tc.get("name"),
+                            "detail": str(exc),
+                        }
+                        return
+                    meta = {
+                        "id": tc["id"],
+                        "name": tc["name"],
+                        "args": fn_args,
+                        "raw_arguments": tc["arguments"] or "{}",
+                    }
+                    ordered.append(meta)
+                    yield {"event": "tool_call", "id": meta["id"], "name": meta["name"], "args": fn_args}
+                    tasks.append(
+                        asyncio.create_task(
+                            self._execute_tool_call(agent=agent, tool_name=meta["name"], args=dict(fn_args))
+                        )
+                    )
+
+                # Stream-aware gather: yield `_keepalive` markers every ~12s of
+                # silence so the SSE proxy (Fly: ~60s idle cutoff) does not cut
+                # the connection during slow tool batches (Tron ~25s, multi-chain
+                # EVM ~10–15s). The routers layer translates `_keepalive` into a
+                # `: keepalive\n\n` SSE comment — ignored by EventSource/fetch
+                # consumers but flushed by browsers to keep proxies happy.
+                raw_results: list[Any] = [None] * len(tasks)
+                remaining = set(tasks)
+                while remaining:
+                    done, remaining = await asyncio.wait(
+                        remaining, timeout=12.0, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if not done:
+                        yield {"event": "_keepalive"}
+                        continue
+                    for finished in done:
+                        idx = tasks.index(finished)
+                        exc = finished.exception()
+                        raw_results[idx] = exc if exc is not None else finished.result()
+                assistant_tool_call_message: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": accumulated_text,
+                    "tool_calls": [],
+                }
+                tool_result_messages: list[dict[str, Any]] = []
+                for meta, result in zip(ordered, raw_results, strict=True):
+                    fn_name = meta["name"]
+                    if isinstance(result, Exception):
+                        result = {
+                            "available": False,
+                            "error": f"{type(result).__name__}: {result}",
+                            "tool": fn_name,
+                        }
+                    chain_calls.append({"tool": fn_name, "args": meta["args"], "result": result})
+                    yield {"event": "tool_result", "id": meta["id"], "name": fn_name, "result": result}
+                    assistant_tool_call_message["tool_calls"].append(
+                        {
+                            "id": meta["id"],
+                            "type": "function",
+                            "function": {"name": fn_name, "arguments": meta["raw_arguments"]},
+                        }
+                    )
+                    tool_result_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": meta["id"],
+                            "name": fn_name,
+                            "content": self._serialize_tool_result(result),
+                        }
+                    )
+
+                # ---------- Second LLM stream with tool results ----------
+                second_messages = [*messages, assistant_tool_call_message, *tool_result_messages]
+                async for evt in self._stream_completion(messages=second_messages, tools=None):
+                    kind = evt["kind"]
+                    if kind == "delta":
+                        accumulated_text += evt["text"]
+                        yield {"event": "text_delta", "text": evt["text"]}
+                    elif kind == "usage":
+                        total_tokens += int(evt.get("total_tokens", 0))
+
+            assistant_row = await create_message(
+                db=db,
+                conversation_id=conversation_id,
+                role="assistant",
+                content=accumulated_text,
+                chain_calls=chain_calls,
+                tokens_used=total_tokens,
+            )
+
+            yield {
+                "event": "final",
+                "conversation_id": conversation_id,
+                "message": dict(assistant_row) if not isinstance(assistant_row, dict) else assistant_row,
+                "tokens_used": total_tokens,
+            }
+
+    async def _stream_completion(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Wrap the OpenAI stream-completions API as a typed internal event stream.
+
+        Yields dicts of shape:
+          {"kind": "delta", "text": str}
+          {"kind": "tool_call_delta", "index": int, "id"?, "name"?, "arguments"?}
+          {"kind": "usage", "total_tokens": int}
+        """
+        client = self.openai_client
+        stream = await client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            tools=tools if tools else None,
+            tool_choice="auto" if tools else None,
+            temperature=self.settings.openai_temperature,
+            max_tokens=self.settings.openai_max_tokens,
+            stream=True,
+        )
+        try:
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield {"kind": "delta", "text": delta.content}
+                if delta and delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        yield {
+                            "kind": "tool_call_delta",
+                            "index": int(tc_delta.index),
+                            "id": tc_delta.id,
+                            "name": tc_delta.function.name if tc_delta.function else None,
+                            "arguments": tc_delta.function.arguments if tc_delta.function else None,
+                        }
+                if chunk.usage is not None:
+                    yield {"kind": "usage", "total_tokens": int(chunk.usage.total_tokens or 0)}
+        finally:
+            await stream.close()
 
     def get_system_prompt(self, agent: dict[str, Any]) -> str:
         """Generate system prompt for the AI agent based on config."""

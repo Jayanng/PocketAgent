@@ -38,22 +38,6 @@ const clientMessage = (message: ChatMessage): ClientMessage => ({
   tokens_used: message.tokens_used ?? 0,
 });
 
-const inferChains = (calls: ChainCall[]): string[] => {
-  const values = new Set<string>();
-  for (const call of calls) {
-    const args = call.args ?? {};
-    const chain = call.chain ?? (typeof args.chain === "string" ? args.chain : undefined);
-    const chains = call.chains ?? (Array.isArray(args.chains) ? args.chains : undefined);
-    if (chain) values.add(chain);
-    if (chains) {
-      for (const value of chains) {
-        if (typeof value === "string") values.add(value);
-      }
-    }
-  }
-  return Array.from(values);
-};
-
 // Singleton EventSource per conversation. Re-subscribing to the same
 // conversation is a no-op so React StrictMode double-mounts don't open
 // duplicate streams.
@@ -137,58 +121,167 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async sendMessage(message) {
     const trimmed = message.trim();
     const state = get();
-    const { selectedAgentId, selectedAgent, refreshConversations } = useAgentStore.getState();
+    const { selectedAgentId, selectedAgent, refreshConversations } =
+      useAgentStore.getState();
     if (!trimmed || state.isLoading || !selectedAgentId) {
       return;
     }
 
+    const userId = crypto.randomUUID();
+    const assistantId = crypto.randomUUID();
     const userMessage: ClientMessage = {
-      id: crypto.randomUUID(),
+      id: userId,
       role: "user",
       content: trimmed,
       chain_calls: [],
       tokens_used: 0,
       created_at: new Date().toISOString(),
     };
+    // Append an empty assistant row immediately so the user sees a typing
+    // bubble the moment they hit send; the first `text_delta` patches it.
+    const emptyAssistant: ClientMessage = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      chain_calls: [],
+      tokens_used: 0,
+      created_at: new Date().toISOString(),
+    };
 
     set({
-      messages: [...state.messages, userMessage],
+      messages: [...state.messages, userMessage, emptyAssistant],
       isLoading: true,
       activeChains: selectedAgent?.chains ?? [],
       error: null,
     });
 
+    let totalTokens = 0;
+    let finalConversationId: string | null = state.currentConversationId;
+    const activeChains = new Set<string>(selectedAgent?.chains ?? []);
+    let streamError: string | null = null;
+
     try {
-      const response = await api.chat.sendMessage(
-        trimmed,
-        selectedAgentId,
-        state.currentConversationId,
-        state.connectedWalletAddress
-      );
-      const assistantMessage: ClientMessage = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: response.response,
-        chain_calls: response.chain_calls,
-        tokens_used: response.tokens_used,
-        created_at: new Date().toISOString(),
-      };
-      const chains = inferChains(response.chain_calls);
-      await refreshConversations();
       const token = getAgentAccessToken(selectedAgentId);
-      set((current) => ({
-        currentConversationId: response.conversation_id,
-        messages: [...current.messages, assistantMessage],
-        activeChains: chains.length ? chains : current.activeChains,
+      await api.chat.streamMessage({
+        message: trimmed,
+        agentId: selectedAgentId,
+        conversationId: state.currentConversationId,
+        connectedWalletAddress: state.connectedWalletAddress,
+        accessToken: token,
+        onEvent: (event) => {
+          const kind = event.event as string;
+          const data = event.data;
+          if (kind === "start" && typeof data.conversation_id === "string") {
+            finalConversationId = data.conversation_id;
+            set((cur) => ({ currentConversationId: data.conversation_id as string }));
+            return;
+          }
+          if (kind === "text_delta" && typeof data.text === "string") {
+            const t = data.text;
+            set((cur) => ({
+              messages: cur.messages.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: (m.content ?? "") + t }
+                  : m,
+              ),
+            }));
+            return;
+          }
+          if (kind === "tool_call") {
+            const toolName = (data.name as string) ?? "unknown";
+            const args = (data.args as Record<string, unknown>) ?? {};
+            set((cur) => ({
+              messages: cur.messages.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      chain_calls: [
+                        ...m.chain_calls,
+                        { tool: toolName, args } as ChainCall,
+                      ],
+                    }
+                  : m,
+              ),
+            }));
+            if (typeof args.chain === "string") activeChains.add(args.chain);
+            if (Array.isArray(args.chains)) {
+              for (const c of args.chains) {
+                if (typeof c === "string") activeChains.add(c);
+              }
+            }
+            return;
+          }
+          if (kind === "tool_result") {
+            const toolName = (data.name as string) ?? "unknown";
+            const result = data.result;
+            set((cur) => ({
+              messages: cur.messages.map((m) => {
+                if (m.id !== assistantId) return m;
+                // Patch the earliest chain_call for this tool that has no
+                // result yet. If tools finish out of order, we still end up
+                // with each `tool_result` mapped to a distinct chain_call column.
+                let patched = false;
+                const updated = m.chain_calls.map((cc) => {
+                  const ccTyped = cc as { tool?: string; result?: unknown };
+                  if (
+                    !patched &&
+                    typeof ccTyped.tool === "string" &&
+                    ccTyped.tool === toolName &&
+                    ccTyped.result === undefined
+                  ) {
+                    patched = true;
+                    return { ...ccTyped, result };
+                  }
+                  return cc;
+                });
+                return { ...m, chain_calls: updated };
+              }),
+            }));
+            return;
+          }
+          if (kind === "final") {
+            if (typeof data.conversation_id === "string") {
+              finalConversationId = data.conversation_id;
+            }
+            if (typeof data.tokens_used === "number") {
+              totalTokens = data.tokens_used;
+            }
+            return;
+          }
+          if (kind === "error") {
+            streamError = (data.detail as string) ?? "Stream error.";
+            return;
+          }
+        },
+      });
+
+      await refreshConversations();
+      set((cur) => ({
+        messages: cur.messages.map((m) =>
+          m.id === assistantId ? { ...m, tokens_used: totalTokens } : m,
+        ),
+        activeChains: activeChains.size
+          ? Array.from(activeChains)
+          : cur.activeChains,
+        error: streamError ?? cur.error,
       }));
-      // Open the live stream for the new/updated conversation so any
-      // background tx confirmations flow in automatically.
-      openStream(response.conversation_id, token);
+      // Reopen the per-conversation SSE so any pending tx_confirmation
+      // events flowing from the backend arrive as chat rows.
+      if (finalConversationId) {
+        openStream(
+          finalConversationId,
+          getAgentAccessToken(selectedAgentId),
+        );
+      }
     } catch (error) {
-      set((current) => ({
-        error: error instanceof Error ? error.message : "Message failed.",
+      set((cur) => ({
+        error:
+          streamError ??
+          (error instanceof Error ? error.message : "Message failed."),
         activeChains: [],
-        messages: current.messages.filter((m) => m.id !== userMessage.id),
+        messages: cur.messages.filter(
+          (m) => m.id !== userId && m.id !== assistantId,
+        ),
       }));
     } finally {
       set({ isLoading: false });

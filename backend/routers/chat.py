@@ -2,6 +2,7 @@ from typing import Any
 import asyncio
 import json
 import sqlite3
+import time
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -114,6 +115,101 @@ async def chat(
         "chain_calls": message.get("chain_calls", []),
         "tokens_used": message.get("tokens_used", 0),
     }
+
+
+_KEEPALIVE_COMMENT = ": keepalive\n\n"
+
+
+def _format_sse_event(event_dict: dict[str, Any]) -> str:
+    payload_type = str(event_dict.get("event", "message"))
+    payload_json = json.dumps(event_dict, default=str, separators=(",", ":"))
+    return f"event: {payload_type}\ndata: {payload_json}\n\n"
+
+
+@router.post("/chat/stream")
+async def chat_stream(
+    request: ChatRequest,
+    fastapi_request: Request,
+    access_token: str | None = Header(None, alias="X-Agent-Access-Token"),
+    db=Depends(get_db),
+) -> StreamingResponse:
+    """Stream a chat turn as Server-Sent Events.
+
+    Event sequence follows `AIAgentService.stream_chat()`:
+      start → text_delta(s) → (tool_calls_start · tool_call · tool_result)* → final
+
+    Errors emit an `event: error` data-frame before the stream closes. SSE
+    comments (`: keepalive`) flush every ~15 s of stream silence so Fly's HTTP
+    proxy does not cut the connection during long tool gathers.
+    """
+    if not request.agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="agent_id is required",
+        )
+    agent = await get_agent(db, request.agent_id)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not agent.get("is_active", True):
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Agent is inactive")
+    _require_agent_access(agent, access_token)
+
+    service = AIAgentService()
+    chat_kwargs: dict[str, Any] = {
+        "message": request.message,
+        "agent_id": request.agent_id,
+        "conversation_id": request.conversation_id,
+    }
+    if request.connected_wallet_address:
+        chat_kwargs["connected_wallet_address"] = request.connected_wallet_address
+
+    async def event_generator() -> Any:
+        last_heartbeat = time.monotonic()
+        try:
+            async for event_dict in service.stream_chat(**chat_kwargs):
+                # Inner-driven keepalive: stream_chat yields `_keepalive` every
+                # ~12s during long tool gathers so Fly's proxy doesn't cut.
+                if event_dict.get("event") == "_keepalive":
+                    yield _KEEPALIVE_COMMENT
+                    last_heartbeat = time.monotonic()
+                    continue
+                # Defense-in-depth: also tick if the outer stream is silent
+                # (e.g. waiting on the first byte from the upstream LLM).
+                now = time.monotonic()
+                if now - last_heartbeat >= 15.0:
+                    yield _KEEPALIVE_COMMENT
+                    last_heartbeat = now
+                yield _format_sse_event(event_dict)
+            # Final keepalive so proxies see the connection close cleanly.
+            yield _KEEPALIVE_COMMENT
+        except asyncio.CancelledError:
+            # Client disconnected mid-stream; let uvicorn close the response.
+            raise
+        except Exception as exc:  # noqa: BLE001 — surface any failure cleanly before close
+            logger.exception("chat_stream generator failed")
+            err = {"event": "error", "code": "stream_failed", "detail": str(exc)}
+            try:
+                yield _format_sse_event(err)
+                yield _KEEPALIVE_COMMENT
+            except Exception:
+                pass
+        finally:
+            close = getattr(service, "close", None)
+            if close is not None:
+                try:
+                    await close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.get("/conversations", response_model=list[ConversationSummary])

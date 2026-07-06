@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pocketagent"
+version = "1.0.0"
+description = "AI agents that reason about and interact with 52 blockchains — via Model Context Protocol"
+license = { text = "MIT" }
+authors = [
+    { name = "PocketAgent Contributors" },
+]
+keywords = [
+    "pocket-network",
+    "blockchain",
+    "mcp",
+    "model-context-protocol",
+    "ai-agent",
+    "multi-chain",
+    "rpc",
+    "web3",
+    "solana",
+    "cosmos",
+    "sui",
+    "near",
+    "tron",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.28.0,<2.0.0",
+    "httpx>=0.27.0,<0.28.0",
+    "pydantic>=2.13.0,<3.0.0",
+    "pydantic-settings>=2.14.2,<3.0.0",
+    "aiosqlite>=0.22.1,<0.23.0",
+    "cryptography>=49.0.0,<50.0.0",
+    "cachetools>=7.1.4,<8.0.0",
+    "openai>=2.43.0,<3.0.0",
+    "web3>=7.16.0,<8.0.0",
+    "eth-account>=0.13.7,<0.14.0",
+    "solders>=0.27.1,<0.28.0",
+    "tronpy>=0.6.2,<0.7.0",
+    "cosmpy>=0.12.2,<0.13.0",
+    "py-near>=1.2.22,<1.3.0",
+    "pysui>=0.65.0,<0.66.0",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.138.0,<0.139.0",
+    "uvicorn>=0.49.0,<0.50.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+]
+test = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+pocketagent-mcp = "pocketagent.mcp_server.server:main"
+
+[project.urls]
+Homepage = "https://github.com/Jayanng/PocketAgent"
+Repository = "https://github.com/Jayanng/PocketAgent"
+Issues = "https://github.com/Jayanng/PocketAgent/issues"
+
+[tool.setuptools.package-dir]
+"pocketagent" = "."
+
+[tool.setuptools]
+packages = [
+    "pocketagent",
+    "pocketagent.mcp_server",
+    "pocketagent.tools",
+    "pocketagent.services",
+    "pocketagent.models",
+    "pocketagent.routers",
+]

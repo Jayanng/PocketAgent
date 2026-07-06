@@ -1,11 +1,11 @@
 """PocketAgent MCP server package.
 
-Exposes the 44 PocketAgent tools, 5 resources, and 4 prompts over MCP stdio.
-The server is a thin adapter over backend/tools/TOOL_REGISTRY — `call_tool`
+Exposes the 51 PocketAgent tools, 5 resources, and 4 prompts over MCP stdio.
+The server is a thin adapter over pocketagent/tools/TOOL_REGISTRY — `call_tool`
 delegates to `execute_tool`, the same path the chat UI uses.
 
 Run with:
-    python -m backend.mcp_server.server
+    python -m pocketagent.mcp_server.server
 """
 
 from __future__ import annotations

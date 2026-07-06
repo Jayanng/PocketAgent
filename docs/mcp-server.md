@@ -52,11 +52,28 @@ MCP client (Claude Desktop / Codex)
 
 ## Install & run
 
-The `mcp` SDK is already in `backend/requirements.txt` (`mcp>=1.27.0`).
+### pip install (recommended)
+
+```bash
+pip install pocketagent
+```
+
+After install, the `pocketagent-mcp` command is available in your PATH.
+
+### From source
+
+```bash
+git clone https://github.com/Jayanng/PocketAgent.git
+pip install ./PocketAgent/backend
+```
+
+### From source
+
+The `mcp` SDK is already in `backend/requirements.txt` (`mcp>=1.28.0`).
 
 ```bash
 cd backend
-python -m mcp_server.server        # stdio server, blocks until client disconnects
+python -m pocketagent.mcp_server.server        # stdio server, blocks until client disconnects
 # or, from the repo root:
 python -m backend.mcp_server.server
 ```
@@ -65,15 +82,34 @@ The server speaks MCP over stdio. It is designed to be launched **by** an MCP
 client (which spawns it as a subprocess), not run manually — see the client
 configs below.
 
-`DATABASE_PATH` may be absolute or relative. Relative paths resolve from the
-`backend/` directory, so API and MCP processes share the same SQLite file even
-when launched from different working directories.
+`DATABASE_PATH` may be absolute or relative. When installed via pip, set an absolute
+path or let the server use its default (`./data/pocketagent.db` relative to the
+working directory of the MCP client).
 
 ## Configure with Claude Desktop
 
 Add to `claude_desktop_config.json` (macOS:
 `~/Library/Application Support/Claude/claude_desktop_config.json`; Windows:
 `%APPDATA%\Claude\claude_desktop_config.json`):
+
+**If installed via pip:**
+
+```jsonc
+{
+  "mcpServers": {
+    "pocketagent": {
+      "command": "pocketagent-mcp",
+      "env": {
+        "DATABASE_PATH": "./data/pocketagent.db",
+        "ENCRYPTION_KEY": "<your-32-byte-key>",
+        "OPENAI_API_KEY": "<your-openai-api-key>"
+      }
+    }
+  }
+}
+```
+
+**If running from source:**
 
 ```jsonc
 {
@@ -85,7 +121,7 @@ Add to `claude_desktop_config.json` (macOS:
       "env": {
         "DATABASE_PATH": "./data/pocketagent.db",
         "ENCRYPTION_KEY": "<your-32-byte-key>",
-        "OPENAI_API_KEY": "<optional, only for the chat path>"
+        "OPENAI_API_KEY": "<your-openai-api-key>"
       }
     }
   }
@@ -101,6 +137,20 @@ available to Claude.
 Add to your Codex `config.toml` (or the equivalent `settings.json` your Codex
 build reads):
 
+**If installed via pip:**
+
+```toml
+[mcp_servers.pocketagent]
+command = "pocketagent-mcp"
+
+[mcp_servers.pocketagent.env]
+DATABASE_PATH = "./data/pocketagent.db"
+ENCRYPTION_KEY = "<your-32-byte-key>"
+OPENAI_API_KEY = "<your-openai-api-key>"
+```
+
+**If running from source:**
+
 ```toml
 [mcp_servers.pocketagent]
 command = "python"
@@ -110,9 +160,25 @@ cwd = "C:/Users/dell/Documents/VS_code/PocketAgent"
 [mcp_servers.pocketagent.env]
 DATABASE_PATH = "./data/pocketagent.db"
 ENCRYPTION_KEY = "<your-32-byte-key>"
+OPENAI_API_KEY = "<your-openai-api-key>"
 ```
 
 For a JSON-style Codex config (`settings.json`):
+
+**If installed via pip:**
+
+```json
+{
+  "mcpServers": {
+    "pocketagent": {
+      "command": "pocketagent-mcp",
+      "env": { "DATABASE_PATH": "./data/pocketagent.db", "ENCRYPTION_KEY": "<key>", "OPENAI_API_KEY": "<key>" }
+    }
+  }
+}
+```
+
+**If running from source:**
 
 ```json
 {
@@ -121,7 +187,7 @@ For a JSON-style Codex config (`settings.json`):
       "command": "python",
       "args": ["-m", "backend.mcp_server.server"],
       "cwd": "C:/Users/dell/Documents/VS_code/PocketAgent",
-      "env": { "DATABASE_PATH": "./data/pocketagent.db", "ENCRYPTION_KEY": "<key>" }
+      "env": { "DATABASE_PATH": "./data/pocketagent.db", "ENCRYPTION_KEY": "<key>", "OPENAI_API_KEY": "<key>" }
     }
   }
 }

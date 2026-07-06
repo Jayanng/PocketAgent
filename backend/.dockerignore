@@ -4,4 +4,6 @@ __pycache__
 *.db
 .git
 .env*
+.pytest_cache/
+tmp/
 tests/

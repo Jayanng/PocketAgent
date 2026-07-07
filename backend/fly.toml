@@ -4,10 +4,12 @@
 #
 
 app = 'backend-blue-resonance-8504'
-primary_region = 'iad'
+primary_region = 'iad'[build]
+  # Explicit Dockerfile path so `fly deploy` doesn't need to guess. Pinned
+  # relative to this fly.toml (which lives in backend/).
+  dockerfile = "Dockerfile"
 
-[build]
-[http_service]
+[http_service] 
   internal_port = 8000
   force_https = true
   # Keep the machine warm so chat turns don't pay a 1-3s cold-start penalty on

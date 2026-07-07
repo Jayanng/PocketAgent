@@ -3,8 +3,14 @@
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'backend-blue-resonance-8504'
-primary_region = 'iad'[build]
+app = 'backend-blue-resonance-8504'primary_region = 'iad'
+
+[build]
+  # Explicit Dockerfile path so `fly deploy` doesn't need to guess. Pinned
+  # relative to this fly.toml (which lives in backend/).
+  dockerfile = "Dockerfile"
+
+[http_service] 
   # Explicit Dockerfile path so `fly deploy` doesn't need to guess. Pinned
   # relative to this fly.toml (which lives in backend/).
   dockerfile = "Dockerfile"

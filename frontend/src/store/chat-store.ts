@@ -8,6 +8,7 @@ import {
   type ChainCall,
   type ChatMessage,
 } from "@/lib/api";
+import { emitApiError } from "@/lib/toast-events";
 import { useAgentStore } from "@/store/agent-store";
 
 type ClientMessage = ChatMessage & {
@@ -37,6 +38,49 @@ const clientMessage = (message: ChatMessage): ClientMessage => ({
   id: crypto.randomUUID(),
   tokens_used: message.tokens_used ?? 0,
 });
+
+/**
+ * Map a backend `client_error` SSE event to FE toast copy. We only surface
+ * copy when the LLM call has clearly over-spent its budget — those are the
+ * cases where the user genuinely has reason to act. Sub-budget failures
+ * (e.g. a connection drop at 5s) are still logged upstream as
+ * `client_error` so we have telemetry, but the SDK will retry once within
+ * the remaining budget; surfacing a red error toast would be misleading.
+ * The `phase` label discriminates first-response vs follow-up calls so
+ * the user understands *which* LLM call the budget is for (and why a 5s
+ * follow-up timeout might still trigger the toast when it was the third
+ * tool+follow-up chain).
+ */
+function buildClientErrorCopy(
+  code: string,
+  phase: string,
+  elapsedMs: number,
+  budgetMs: number
+): { title: string; body: string } {
+  const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
+  const budgetSec = Math.max(1, Math.round(budgetMs / 1000));
+  const phaseLabel =
+    phase === "first_llm"
+      ? "first response"
+      : phase === "second_llm"
+        ? "follow-up synthesis"
+        : phase;
+
+  if (code === "llm_timeout") {
+    return {
+      title: `Model timed out at ${budgetSec}s`,
+      body: `The ${phaseLabel} exceeded the ${budgetSec}s budget. Press "Try again" to retry.`,
+    };
+  }
+  // llm_unavailable / llm_error: the SDK has already exhausted its single
+  // retry budget (max_retries=1) by the time we get here, so there is no
+  // silent retry in flight. Surface an honest "model unavailable" CTA
+  // instead of the misleading "Retrying internally" copy.
+  return {
+    title: "Model temporarily unavailable",
+    body: `The ${phaseLabel} hit a model-side error at ${elapsedSec}s of the ${budgetSec}s budget. Press "Try again" to retry.`,
+  };
+}
 
 // Singleton EventSource per conversation. Re-subscribing to the same
 // conversation is a no-op so React StrictMode double-mounts don't open
@@ -248,6 +292,45 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
             return;
           }
+          if (kind === "client_error") {
+            // Latency-budget-driven toast copy. Reuses the timing dict the
+            // backend already computes so the FE doesn't have to redo math;
+            // see `buildClientErrorCopy` for the bands. `streamError` is
+            // intentionally NOT set here — `client_error` is a transient
+            // banner that keeps the user message in chat history instead of
+            // rolling it back, while `error` state still surfaces the toast
+            // banner copy until the user sends the next message.
+            const code = (data.code as string) ?? "llm_error";
+            const phase = (data.phase as string) ?? "first_llm";
+            const elapsedMs =
+              typeof data.elapsed_ms === "number" ? data.elapsed_ms : 0;
+            const budgetMs =
+              typeof data.phase_budget_ms === "number"
+                ? data.phase_budget_ms
+                : 90_000;
+            const copy = buildClientErrorCopy(code, phase, elapsedMs, budgetMs);
+            set((cur) => ({
+              error: `${copy.title} — ${copy.body}`,
+            }));
+            emitApiError({
+              message: `${copy.title} — ${copy.body}`,
+              actionLabel: "Try again",
+              actionOnClick: () => {
+                // Re-send the most recent user message so the user doesn't
+                // have to retype. Falls back to a page reload if no user
+                // message is in the current conversation.
+                const lastUser = [...get().messages]
+                  .reverse()
+                  .find((m) => m.role === "user");
+                if (lastUser?.content) {
+                  void get().sendMessage(lastUser.content);
+                } else {
+                  window.location.reload();
+                }
+              },
+            });
+            return;
+          }
           if (kind === "error") {
             streamError = (data.detail as string) ?? "Stream error.";
             return;
@@ -263,7 +346,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeChains: activeChains.size
           ? Array.from(activeChains)
           : cur.activeChains,
-        error: streamError ?? cur.error,
+        error: streamError,
       }));
       // Reopen the per-conversation SSE so any pending tx_confirmation
       // events flowing from the backend arrive as chat rows.

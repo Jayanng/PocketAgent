@@ -9,7 +9,7 @@ from typing import Any
 
 import aiosqlite
 import httpx
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAIError
 
 try:
     from ..config import ensure_database_directory, get_settings
@@ -99,6 +99,14 @@ async def close_openai_client_pool() -> None:
 
 class AIAgentService:
     """Service for handling AI agent conversations with function calling."""
+
+    # Per-phase LLM call budget. Mirrors the OpenAI client bounds
+    # (`httpx.Timeout(45.0, connect=10.0)` × `max_retries=1` = 90 s
+    # ceiling). Surfaced on the `client_error` SSE event so the FE drives
+    # toast copy off real elapsed/budget ratios. Hoisted to the class so
+    # tests and subclasses can override without monkey-patching the
+    # function source.
+    PHASE_BUDGET_MS = 90_000
 
     def __init__(self) -> None:
         settings = get_settings()
@@ -302,6 +310,50 @@ class AIAgentService:
         tool_started_at: list[float] = []
         ordered: list[dict[str, Any]] = []
         timing_emitted = False
+        # Reason tag for the chat_timing_partial fallback log line. Tracking
+        # it explicitly (instead of always writing 'early_return') lets
+        # operators grep client-side failures separately from fast-fail paths
+        # like agent_not_found or bad_tool_args.
+        early_return_reason: str = "early_return"
+
+        def emit_client_error(phase: str, exc: BaseException) -> dict[str, Any]:
+            """Build the SSE payload we emit when an OpenAI stream fails.
+
+            Captured elapsed_ms is measured from `t_start` (request entry),
+            not from the start of the failing stream -- it's the user-visible
+            'how long have I been waiting' number. `timing` is the full
+            per-phase dict up to the failure point, so the FE can render a
+            useful timeline if it wants to.
+            """
+            nonlocal early_return_reason
+            now = time.perf_counter()
+            elapsed_ms = max(0, round((now - t_start) * 1000))
+            if isinstance(exc, (httpx.TimeoutException, asyncio.TimeoutError)):
+                code = "llm_timeout"
+            elif isinstance(exc, OpenAIError):
+                # Connection / DNS / TLS / 5xx / etc.
+                code = "llm_unavailable"
+            else:
+                code = "llm_error"
+            early_return_reason = "client_error"
+            return {
+                "event": "client_error",
+                "code": code,
+                "phase": phase,
+                "detail": str(exc)[:512],
+                "elapsed_ms": elapsed_ms,
+                "phase_budget_ms": self.PHASE_BUDGET_MS,
+                "timing": self._build_timing_dict(
+                    t_start=t_start,
+                    t_ttft=t_ttft,
+                    t_first_llm_done=t_first_llm_done,
+                    t_rpc_start=t_rpc_start,
+                    t_rpc_end=t_rpc_end,
+                    t_second_llm_done=t_second_llm_done,
+                    tools=ordered,
+                    t_end=now,
+                ),
+            }
 
         try:
             async with self._connect_db() as db:
@@ -354,26 +406,35 @@ class AIAgentService:
                 accumulated_text = ""
                 accumulated_tool_calls: dict[int, dict[str, Any]] = {}
                 total_tokens = 0
-                async for evt in self._stream_completion(messages=messages, tools=tools):
-                    kind = evt["kind"]
-                    if kind == "delta":
-                        if t_ttft is None:
-                            t_ttft = time.perf_counter()
-                        accumulated_text += evt["text"]
-                        yield {"event": "text_delta", "text": evt["text"]}
-                    elif kind == "tool_call_delta":
-                        idx = int(evt["index"])
-                        slot = accumulated_tool_calls.setdefault(
-                            idx, {"id": "", "name": "", "arguments": ""}
-                        )
-                        if evt.get("id"):
-                            slot["id"] = evt["id"]
-                        if evt.get("name"):
-                            slot["name"] = evt["name"]
-                        if evt.get("arguments"):
-                            slot["arguments"] += evt["arguments"]
-                    elif kind == "usage":
-                        total_tokens += int(evt.get("total_tokens", 0))
+                try:
+                    async for evt in self._stream_completion(messages=messages, tools=tools):
+                        kind = evt["kind"]
+                        if kind == "delta":
+                            if t_ttft is None:
+                                t_ttft = time.perf_counter()
+                            accumulated_text += evt["text"]
+                            yield {"event": "text_delta", "text": evt["text"]}
+                        elif kind == "tool_call_delta":
+                            idx = int(evt["index"])
+                            slot = accumulated_tool_calls.setdefault(
+                                idx, {"id": "", "name": "", "arguments": ""}
+                            )
+                            if evt.get("id"):
+                                slot["id"] = evt["id"]
+                            if evt.get("name"):
+                                slot["name"] = evt["name"]
+                            if evt.get("arguments"):
+                                slot["arguments"] += evt["arguments"]
+                        elif kind == "usage":
+                            total_tokens += int(evt.get("total_tokens", 0))
+                except (OpenAIError, httpx.HTTPError, asyncio.TimeoutError) as exc:
+                    # Surface a client_error SSE frame so the FE can drive
+                    # latency-budget-aware toast copy ("Crunching your
+                    # request…" → "Retrying internally…" → "Send another
+                    # message…") instead of leaving the user staring at a
+                    # blank spinner for the full 90s LLM ceiling.
+                    yield emit_client_error("first_llm", exc)
+                    return
                 t_first_llm_done = time.perf_counter()
 
                 # ---------- Parallel tool execution ----------
@@ -469,15 +530,19 @@ class AIAgentService:
 
                     # ---------- Second LLM stream with tool results ----------
                     second_messages = [*messages, assistant_tool_call_message, *tool_result_messages]
-                    async for evt in self._stream_completion(messages=second_messages, tools=None):
-                        kind = evt["kind"]
-                        if kind == "delta":
-                            if t_ttft is None:
-                                t_ttft = time.perf_counter()
-                            accumulated_text += evt["text"]
-                            yield {"event": "text_delta", "text": evt["text"]}
-                        elif kind == "usage":
-                            total_tokens += int(evt.get("total_tokens", 0))
+                    try:
+                        async for evt in self._stream_completion(messages=second_messages, tools=None):
+                            kind = evt["kind"]
+                            if kind == "delta":
+                                if t_ttft is None:
+                                    t_ttft = time.perf_counter()
+                                accumulated_text += evt["text"]
+                                yield {"event": "text_delta", "text": evt["text"]}
+                            elif kind == "usage":
+                                total_tokens += int(evt.get("total_tokens", 0))
+                    except (OpenAIError, httpx.HTTPError, asyncio.TimeoutError) as exc:
+                        yield emit_client_error("second_llm", exc)
+                        return
                     t_second_llm_done = time.perf_counter()
 
                 timing = self._build_timing_dict(
@@ -545,7 +610,7 @@ class AIAgentService:
                     )
                     logger.warning(
                         "chat_timing_partial agent=%s ttft=%dms first_llm=%dms rpc=%dms "
-                        "second_llm=%dms llm_total=%dms total=%dms tools=%s reason=early_return",
+                        "second_llm=%dms llm_total=%dms total=%dms tools=%s reason=%s",
                         agent_id,
                         timing["ttft_ms"] if timing["ttft_ms"] is not None else -1,
                         timing["first_llm_ms"] if timing["first_llm_ms"] is not None else -1,
@@ -554,6 +619,7 @@ class AIAgentService:
                         timing["llm_total_ms"],
                         timing["total_ms"],
                         ",".join(f"{t['tool']}={t['duration_ms']}ms" for t in timing["tools"]) or "none",
+                        early_return_reason,
                     )
                 except Exception:
                     # Never block generator cleanup on logging hiccups.

@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import aiosqlite
+import httpx
 from openai import AsyncOpenAI
 
 try:
@@ -70,9 +71,18 @@ async def ensure_openai_client_pool() -> None:
         _shared_openai_client = AsyncOpenAI(
             api_key=api_key,
             base_url=settings.openai_base_url,
+            # Bound the worst-case wall-clock per LLM call. SDK defaults are
+            # 600s read timeout with 2 retries (i.e. up to ~30 min per call),
+            # which is why a single chat turn could hang for 27 minutes on a
+            # failing upstream. 45s × 1 retry ⇒ ≤90s, exactly matching the
+            # first-LLM budget we promised the FE. `connect=10s` keeps the
+            # initial handshake fail-fast.
+            timeout=httpx.Timeout(45.0, connect=10.0),
+            max_retries=1,
         )
         logger.info(
-            "OpenAI client pool warmed (base_url=%s)", settings.openai_base_url
+            "OpenAI client pool warmed (base_url=%s timeout=45s max_retries=1)",
+            settings.openai_base_url,
         )
 
 
@@ -112,9 +122,14 @@ class AIAgentService:
             # lifespan handler in main.py) so connection pooling is shared
             # across all chat turns. Fall back to per-instance construction
             # only when the shared pool wasn't initialized (tests / CLI use).
+            # The fallback MUST mirror the shared client's timeout/retries so
+            # tests and CLI callers see the same first-LLM budget (~90s) as
+            # the deployed service.
             self._openai_client = _shared_openai_client or AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=self.settings.openai_base_url,
+                timeout=httpx.Timeout(45.0, connect=10.0),
+                max_retries=1,
             )
         return self._openai_client
 
@@ -658,41 +673,53 @@ class AIAgentService:
         tools: list[dict[str, Any]],
         t_end: float,
     ) -> dict[str, Any]:
-        """Convert raw perf_counter timestamps into a JSON-safe timing dict
-        attached to every chat turn's `final` SSE event and emitted as a
-        server-side `chat_timing` log line.
+        """Per-phase duration dict for the chat `final` SSE event and the
+        ``chat_timing`` log line.
 
-        Schema:
-          ttft_ms        int | None   request entry → first text delta
-          first_llm_ms   int | None   first LLM stream duration
-          rpc_ms         int          parallel tool gather (0 if no tools)
+        Every duration is a DELTA of two ``time.perf_counter()`` checkpoints,
+        never an absolute timestamp scaled to ms. A previous version used a
+        ``ms(t) -> int(t * 1000)`` helper on absolute perf_counter values,
+        which inflated `first_llm_ms` by the entire host uptime (e.g. 1.6M
+        ms after 27 min of process life) and made ``first_llm_ms > total_ms``
+        on long-running workers. ``max(0, ...)`` defends against residual
+        clock anomalies (NTP slew, monotonic gaps).
+
+        Schema (all integers in milliseconds; None means the phase did not
+        run; 0 means the phase ran and measured cleanly):
+          ttft_ms        None | int   request entry → first text delta
+          first_llm_ms   None | int   request entry → end of first stream
+          rpc_ms         int          parallel tool gather (<= 0 if no tools)
           second_llm_ms  int          post-tool LLM stream (0 if no tools)
           llm_total_ms   int          first_llm + second_llm
           total_ms       int          wall-clock per turn
-          tools          list[dict]   per-tool {"tool": str, "duration_ms": int}
+          tools          list[dict]   {"tool": str, "duration_ms": int}
+        Invariant: ``first_llm_ms + rpc_ms + second_llm_ms <= total_ms``.
         """
 
-        def ms(seconds: float | None) -> int | None:
-            return None if seconds is None else int(seconds * 1000)
+        def duration_ms(
+            t_end_value: float | None, t_start_value: float | None
+        ) -> int | None:
+            if t_end_value is None or t_start_value is None:
+                return None
+            # Use round() instead of int() to avoid IEEE-754 1ms jitter on
+            # "clean" timestamp deltas like (4.8 - 4.0)*1000 = 799.999...
+            return max(0, round((t_end_value - t_start_value) * 1000))
 
-        first_llm_ms = ms(t_first_llm_done)
-        rpc_ms = (
-            int((t_rpc_end - t_rpc_start) * 1000)
-            if t_rpc_start is not None and t_rpc_end is not None
-            else 0
-        )
+        first_llm_ms = duration_ms(t_first_llm_done, t_start)
+        rpc_ms = duration_ms(t_rpc_end, t_rpc_start) or 0
         second_llm_ms = (
-            int((t_second_llm_done - (t_rpc_end or t_first_llm_done or t_start)) * 1000)
-            if t_second_llm_done is not None
-            else 0
+            duration_ms(
+                t_second_llm_done, t_rpc_end or t_first_llm_done or t_start
+            )
+            or 0
         )
         return {
-            "ttft_ms": ms(t_ttft),
+            "ttft_ms": duration_ms(t_ttft, t_start),
             "first_llm_ms": first_llm_ms,
             "rpc_ms": rpc_ms,
             "second_llm_ms": second_llm_ms,
             "llm_total_ms": (first_llm_ms or 0) + second_llm_ms,
-            "total_ms": int((t_end - t_start) * 1000),
+            "total_ms": duration_ms(t_end, t_start) or 0,
             "tools": [
                 {"tool": t["name"], "duration_ms": int(t.get("duration_ms", 0))}
                 for t in tools

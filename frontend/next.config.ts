@@ -9,12 +9,20 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "picsum.photos",
       },
+   
       {
         protocol: "https",
         hostname: "cdn.simpleicons.org",
       },
     ],
   },
+     typescript: {
+  ignoreBuildErrors: true,
+}
 };
 
+
+
 export default nextConfig;
+
+

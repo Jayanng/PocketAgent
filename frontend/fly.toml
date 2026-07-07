@@ -4,7 +4,7 @@
 #
 
 app = 'pocketagent'
-primary_region = 'arn'
+primary_region = 'iad'
 
 [build]
   [build.args]

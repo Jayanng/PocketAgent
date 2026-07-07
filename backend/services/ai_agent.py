@@ -2,6 +2,7 @@ import asyncio
 import ast
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -266,189 +267,282 @@ class AIAgentService:
           {"event": "tool_calls_start", "count": int}            (only if the model emitted tools)
           {"event": "tool_call",        "id": str, "name": str, "args": dict}
           {"event": "tool_result",      "id": str, "name": str, "result": Any}
-          {"event": "final",            "conversation_id": str, "message": <db row>, "tokens_used": int}
+          {"event": "final",            "conversation_id": str, "message": <db row>, "tokens_used": int, "timing": {...}}
 
         Errors surface as {"event": "error", "code": str, "detail": str, ...} before the
         generator returns; the FastAPI StreamingResponse wrapper emits them as-is.
+
+        Timing instrumentation: captures per-phase latency (TTFT, RPC total,
+        LLM total) on every success path AND every early-return error path so
+        `fly logs | grep chat_timing` always shows the gap.
         """
-        async with self._connect_db() as db:
-            self._active_db = db
-            agent = await get_agent(db, agent_id)
-            if agent is None:
-                yield {"event": "error", "code": "agent_not_found", "detail": f"Agent not found: {agent_id}"}
-                return
-            if not agent.get("is_active", True):
-                yield {"event": "error", "code": "agent_inactive", "detail": f"Agent is inactive: {agent_id}"}
-                return
-            if connected_wallet_address:
-                agent = {**agent, "connected_wallet_address": connected_wallet_address}
+        # Timing state lives at outer scope so the `finally` block can still
+        # emit a partial timing line on early-return error paths.
+        t_start = time.perf_counter()
+        t_ttft: float | None = None
+        t_first_llm_done: float | None = None
+        t_rpc_start: float | None = None
+        t_rpc_end: float | None = None
+        t_second_llm_done: float | None = None
+        tool_started_at: list[float] = []
+        ordered: list[dict[str, Any]] = []
+        timing_emitted = False
 
-            if conversation_id is None:
-                conversation = await create_conversation(db, agent_id=agent_id, title=message[:80])
-                conversation_id = str(conversation["id"])
-            else:
-                conversation = await get_conversation(db, conversation_id)
-                if conversation is None:
-                    yield {"event": "error", "code": "conversation_not_found", "detail": f"Conversation not found: {conversation_id}"}
+        try:
+            async with self._connect_db() as db:
+                self._active_db = db
+                agent = await get_agent(db, agent_id)
+                if agent is None:
+                    yield {"event": "error", "code": "agent_not_found", "detail": f"Agent not found: {agent_id}"}
                     return
-                if conversation.get("agent_id") != agent_id:
-                    yield {"event": "error", "code": "wrong_agent", "detail": "Conversation does not belong to this agent."}
+                if not agent.get("is_active", True):
+                    yield {"event": "error", "code": "agent_inactive", "detail": f"Agent is inactive: {agent_id}"}
                     return
-            self._active_conversation_id = conversation_id
+                if connected_wallet_address:
+                    agent = {**agent, "connected_wallet_address": connected_wallet_address}
 
-            if not self.api_key:
-                yield {"event": "error", "code": "no_api_key", "detail": "GMI_API_KEY or OPENAI_API_KEY is not configured."}
-                return
-
-            yield {"event": "start", "conversation_id": conversation_id}
-
-            await create_message(
-                db=db,
-                conversation_id=conversation_id,
-                role="user",
-                content=message,
-                chain_calls=[],
-                tokens_used=0,
-            )
-
-            history = await list_messages(
-                db, conversation_id=conversation_id, limit=self.settings.chat_history_limit
-            )
-            messages = self._build_openai_messages(agent=agent, history=history)
-            tools = self.get_tool_definitions(agent)
-
-            # ---------- First LLM stream ----------
-            accumulated_text = ""
-            accumulated_tool_calls: dict[int, dict[str, Any]] = {}
-            total_tokens = 0
-            async for evt in self._stream_completion(messages=messages, tools=tools):
-                kind = evt["kind"]
-                if kind == "delta":
-                    accumulated_text += evt["text"]
-                    yield {"event": "text_delta", "text": evt["text"]}
-                elif kind == "tool_call_delta":
-                    idx = int(evt["index"])
-                    slot = accumulated_tool_calls.setdefault(
-                        idx, {"id": "", "name": "", "arguments": ""}
-                    )
-                    if evt.get("id"):
-                        slot["id"] = evt["id"]
-                    if evt.get("name"):
-                        slot["name"] = evt["name"]
-                    if evt.get("arguments"):
-                        slot["arguments"] += evt["arguments"]
-                elif kind == "usage":
-                    total_tokens += int(evt.get("total_tokens", 0))
-
-            # ---------- Parallel tool execution ----------
-            chain_calls: list[dict[str, Any]] = []
-            if accumulated_tool_calls:
-                yield {"event": "tool_calls_start", "count": len(accumulated_tool_calls)}
-
-                ordered: list[dict[str, Any]] = []
-                tasks: list[asyncio.Task[Any]] = []
-                for idx in sorted(accumulated_tool_calls.keys()):
-                    tc = accumulated_tool_calls[idx]
-                    try:
-                        fn_args = self._parse_tool_args(tc["arguments"] or "{}")
-                    except ValueError as exc:
-                        yield {
-                            "event": "error",
-                            "code": "bad_tool_args",
-                            "tool": tc.get("name"),
-                            "detail": str(exc),
-                        }
+                if conversation_id is None:
+                    conversation = await create_conversation(db, agent_id=agent_id, title=message[:80])
+                    conversation_id = str(conversation["id"])
+                else:
+                    conversation = await get_conversation(db, conversation_id)
+                    if conversation is None:
+                        yield {"event": "error", "code": "conversation_not_found", "detail": f"Conversation not found: {conversation_id}"}
                         return
-                    meta = {
-                        "id": tc["id"],
-                        "name": tc["name"],
-                        "args": fn_args,
-                        "raw_arguments": tc["arguments"] or "{}",
-                    }
-                    ordered.append(meta)
-                    yield {"event": "tool_call", "id": meta["id"], "name": meta["name"], "args": fn_args}
-                    tasks.append(
-                        asyncio.create_task(
-                            self._execute_tool_call(agent=agent, tool_name=meta["name"], args=dict(fn_args))
-                        )
-                    )
+                    if conversation.get("agent_id") != agent_id:
+                        yield {"event": "error", "code": "wrong_agent", "detail": "Conversation does not belong to this agent."}
+                        return
+                self._active_conversation_id = conversation_id
 
-                # Stream-aware gather: yield `_keepalive` markers every ~12s of
-                # silence so the SSE proxy (Fly: ~60s idle cutoff) does not cut
-                # the connection during slow tool batches (Tron ~25s, multi-chain
-                # EVM ~10–15s). The routers layer translates `_keepalive` into a
-                # `: keepalive\n\n` SSE comment — ignored by EventSource/fetch
-                # consumers but flushed by browsers to keep proxies happy.
-                raw_results: list[Any] = [None] * len(tasks)
-                remaining = set(tasks)
-                while remaining:
-                    done, remaining = await asyncio.wait(
-                        remaining, timeout=12.0, return_when=asyncio.FIRST_COMPLETED
-                    )
-                    if not done:
-                        yield {"event": "_keepalive"}
-                        continue
-                    for finished in done:
-                        idx = tasks.index(finished)
-                        exc = finished.exception()
-                        raw_results[idx] = exc if exc is not None else finished.result()
-                assistant_tool_call_message: dict[str, Any] = {
-                    "role": "assistant",
-                    "content": accumulated_text,
-                    "tool_calls": [],
-                }
-                tool_result_messages: list[dict[str, Any]] = []
-                for meta, result in zip(ordered, raw_results, strict=True):
-                    fn_name = meta["name"]
-                    if isinstance(result, Exception):
-                        result = {
-                            "available": False,
-                            "error": f"{type(result).__name__}: {result}",
-                            "tool": fn_name,
-                        }
-                    chain_calls.append({"tool": fn_name, "args": meta["args"], "result": result})
-                    yield {"event": "tool_result", "id": meta["id"], "name": fn_name, "result": result}
-                    assistant_tool_call_message["tool_calls"].append(
-                        {
-                            "id": meta["id"],
-                            "type": "function",
-                            "function": {"name": fn_name, "arguments": meta["raw_arguments"]},
-                        }
-                    )
-                    tool_result_messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": meta["id"],
-                            "name": fn_name,
-                            "content": self._serialize_tool_result(result),
-                        }
-                    )
+                if not self.api_key:
+                    yield {"event": "error", "code": "no_api_key", "detail": "GMI_API_KEY or OPENAI_API_KEY is not configured."}
+                    return
 
-                # ---------- Second LLM stream with tool results ----------
-                second_messages = [*messages, assistant_tool_call_message, *tool_result_messages]
-                async for evt in self._stream_completion(messages=second_messages, tools=None):
+                yield {"event": "start", "conversation_id": conversation_id}
+
+                await create_message(
+                    db=db,
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=message,
+                    chain_calls=[],
+                    tokens_used=0,
+                )
+
+                history = await list_messages(
+                    db, conversation_id=conversation_id, limit=self.settings.chat_history_limit
+                )
+                messages = self._build_openai_messages(agent=agent, history=history)
+                tools = self.get_tool_definitions(agent)
+
+                # ---------- First LLM stream ----------
+                accumulated_text = ""
+                accumulated_tool_calls: dict[int, dict[str, Any]] = {}
+                total_tokens = 0
+                async for evt in self._stream_completion(messages=messages, tools=tools):
                     kind = evt["kind"]
                     if kind == "delta":
+                        if t_ttft is None:
+                            t_ttft = time.perf_counter()
                         accumulated_text += evt["text"]
                         yield {"event": "text_delta", "text": evt["text"]}
+                    elif kind == "tool_call_delta":
+                        idx = int(evt["index"])
+                        slot = accumulated_tool_calls.setdefault(
+                            idx, {"id": "", "name": "", "arguments": ""}
+                        )
+                        if evt.get("id"):
+                            slot["id"] = evt["id"]
+                        if evt.get("name"):
+                            slot["name"] = evt["name"]
+                        if evt.get("arguments"):
+                            slot["arguments"] += evt["arguments"]
                     elif kind == "usage":
                         total_tokens += int(evt.get("total_tokens", 0))
+                t_first_llm_done = time.perf_counter()
 
-            assistant_row = await create_message(
-                db=db,
-                conversation_id=conversation_id,
-                role="assistant",
-                content=accumulated_text,
-                chain_calls=chain_calls,
-                tokens_used=total_tokens,
-            )
+                # ---------- Parallel tool execution ----------
+                chain_calls: list[dict[str, Any]] = []
+                if accumulated_tool_calls:
+                    yield {"event": "tool_calls_start", "count": len(accumulated_tool_calls)}
 
-            yield {
-                "event": "final",
-                "conversation_id": conversation_id,
-                "message": dict(assistant_row) if not isinstance(assistant_row, dict) else assistant_row,
-                "tokens_used": total_tokens,
-            }
+                    tasks: list[asyncio.Task[Any]] = []
+                    for idx in sorted(accumulated_tool_calls.keys()):
+                        tc = accumulated_tool_calls[idx]
+                        try:
+                            fn_args = self._parse_tool_args(tc["arguments"] or "{}")
+                        except ValueError as exc:
+                            yield {
+                                "event": "error",
+                                "code": "bad_tool_args",
+                                "tool": tc.get("name"),
+                                "detail": str(exc),
+                            }
+                            return
+                        meta = {
+                            "id": tc["id"],
+                            "name": tc["name"],
+                            "args": fn_args,
+                            "raw_arguments": tc["arguments"] or "{}",
+                        }
+                        ordered.append(meta)
+                        yield {"event": "tool_call", "id": meta["id"], "name": meta["name"], "args": fn_args}
+                        tool_started_at.append(time.perf_counter())
+                        tasks.append(
+                            asyncio.create_task(
+                                self._execute_tool_call(agent=agent, tool_name=meta["name"], args=dict(fn_args))
+                            )
+                        )
+
+                    t_rpc_start = time.perf_counter()  # start of the gather, after tasks scheduled
+
+                    # Stream-aware gather: yield `_keepalive` markers every ~12s of
+                    # silence so the SSE proxy (Fly: ~60s idle cutoff) does not cut
+                    # the connection during slow tool batches (Tron ~25s, multi-chain
+                    # EVM ~10–15s). The routers layer translates `_keepalive` into a
+                    # `: keepalive\n\n` SSE comment — ignored by EventSource/fetch
+                    # consumers but flushed by browsers to keep proxies happy.
+                    raw_results: list[Any] = [None] * len(tasks)
+                    remaining = set(tasks)
+                    while remaining:
+                        done, remaining = await asyncio.wait(
+                            remaining, timeout=12.0, return_when=asyncio.FIRST_COMPLETED
+                        )
+                        if not done:
+                            yield {"event": "_keepalive"}
+                            continue
+                        for finished in done:
+                            idx = tasks.index(finished)
+                            ordered[idx]["duration_ms"] = int(
+                                (time.perf_counter() - tool_started_at[idx]) * 1000
+                            )
+                            exc = finished.exception()
+                            raw_results[idx] = exc if exc is not None else finished.result()
+                    t_rpc_end = time.perf_counter()
+
+                    assistant_tool_call_message: dict[str, Any] = {
+                        "role": "assistant",
+                        "content": accumulated_text,
+                        "tool_calls": [],
+                    }
+                    tool_result_messages: list[dict[str, Any]] = []
+                    for meta, result in zip(ordered, raw_results, strict=True):
+                        fn_name = meta["name"]
+                        if isinstance(result, Exception):
+                            result = {
+                                "available": False,
+                                "error": f"{type(result).__name__}: {result}",
+                                "tool": fn_name,
+                            }
+                        chain_calls.append({"tool": fn_name, "args": meta["args"], "result": result})
+                        yield {"event": "tool_result", "id": meta["id"], "name": fn_name, "result": result}
+                        assistant_tool_call_message["tool_calls"].append(
+                            {
+                                "id": meta["id"],
+                                "type": "function",
+                                "function": {"name": fn_name, "arguments": meta["raw_arguments"]},
+                            }
+                        )
+                        tool_result_messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": meta["id"],
+                                "name": fn_name,
+                                "content": self._serialize_tool_result(result),
+                            }
+                        )
+
+                    # ---------- Second LLM stream with tool results ----------
+                    second_messages = [*messages, assistant_tool_call_message, *tool_result_messages]
+                    async for evt in self._stream_completion(messages=second_messages, tools=None):
+                        kind = evt["kind"]
+                        if kind == "delta":
+                            if t_ttft is None:
+                                t_ttft = time.perf_counter()
+                            accumulated_text += evt["text"]
+                            yield {"event": "text_delta", "text": evt["text"]}
+                        elif kind == "usage":
+                            total_tokens += int(evt.get("total_tokens", 0))
+                    t_second_llm_done = time.perf_counter()
+
+                timing = self._build_timing_dict(
+                    t_start=t_start,
+                    t_ttft=t_ttft,
+                    t_first_llm_done=t_first_llm_done,
+                    t_rpc_start=t_rpc_start,
+                    t_rpc_end=t_rpc_end,
+                    t_second_llm_done=t_second_llm_done,
+                    tools=ordered,
+                    t_end=time.perf_counter(),
+                )
+                # Uniform integer units (-1 = phase did not run) so log scrapers
+                # can rely on a stable schema.
+                logger.info(
+                    "chat_timing agent=%s ttft=%dms first_llm=%dms rpc=%dms "
+                    "second_llm=%dms llm_total=%dms total=%dms tools=%s",
+                    agent_id,
+                    timing["ttft_ms"] if timing["ttft_ms"] is not None else -1,
+                    timing["first_llm_ms"] if timing["first_llm_ms"] is not None else -1,
+                    timing["rpc_ms"],
+                    timing["second_llm_ms"],
+                    timing["llm_total_ms"],
+                    timing["total_ms"],
+                    ",".join(f"{t['tool']}={t['duration_ms']}ms" for t in timing["tools"]) or "none",
+                )
+
+                assistant_row = await create_message(
+                    db=db,
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=accumulated_text,
+                    chain_calls=chain_calls,
+                    tokens_used=total_tokens,
+                )
+
+                yield {
+                    "event": "final",
+                    "conversation_id": conversation_id,
+                    "message": dict(assistant_row) if not isinstance(assistant_row, dict) else assistant_row,
+                    "tokens_used": total_tokens,
+                    "timing": timing,
+                }
+                timing_emitted = True
+        except (GeneratorExit, asyncio.CancelledError):
+            # Client disconnected mid-stream; let uvicorn close the response.
+            raise
+        finally:
+            # Fallback log so `chat_timing` always lands in fly logs, even
+            # when an early-return path (agent_not_found / bad_tool_args /
+            # no_api_key / etc.) skips the success-path emit. We log at
+            # WARNING level with a `reason=early_return` tag so operators can
+            # grep errored turns separately from clean ones.
+            if not timing_emitted:
+                try:
+                    timing = self._build_timing_dict(
+                        t_start=t_start,
+                        t_ttft=t_ttft,
+                        t_first_llm_done=t_first_llm_done,
+                        t_rpc_start=t_rpc_start,
+                        t_rpc_end=t_rpc_end,
+                        t_second_llm_done=t_second_llm_done,
+                        tools=ordered,
+                        t_end=time.perf_counter(),
+                    )
+                    logger.warning(
+                        "chat_timing_partial agent=%s ttft=%dms first_llm=%dms rpc=%dms "
+                        "second_llm=%dms llm_total=%dms total=%dms tools=%s reason=early_return",
+                        agent_id,
+                        timing["ttft_ms"] if timing["ttft_ms"] is not None else -1,
+                        timing["first_llm_ms"] if timing["first_llm_ms"] is not None else -1,
+                        timing["rpc_ms"],
+                        timing["second_llm_ms"],
+                        timing["llm_total_ms"],
+                        timing["total_ms"],
+                        ",".join(f"{t['tool']}={t['duration_ms']}ms" for t in timing["tools"]) or "none",
+                    )
+                except Exception:
+                    # Never block generator cleanup on logging hiccups.
+                    pass
 
     async def _stream_completion(
         self,
@@ -551,6 +645,59 @@ class AIAgentService:
             conversation_id=getattr(self, "_active_conversation_id", None),
         )
         return await execute_tool(tool_name, context, args)
+
+    @staticmethod
+    def _build_timing_dict(
+        *,
+        t_start: float,
+        t_ttft: float | None,
+        t_first_llm_done: float | None,
+        t_rpc_start: float | None,
+        t_rpc_end: float | None,
+        t_second_llm_done: float | None,
+        tools: list[dict[str, Any]],
+        t_end: float,
+    ) -> dict[str, Any]:
+        """Convert raw perf_counter timestamps into a JSON-safe timing dict
+        attached to every chat turn's `final` SSE event and emitted as a
+        server-side `chat_timing` log line.
+
+        Schema:
+          ttft_ms        int | None   request entry → first text delta
+          first_llm_ms   int | None   first LLM stream duration
+          rpc_ms         int          parallel tool gather (0 if no tools)
+          second_llm_ms  int          post-tool LLM stream (0 if no tools)
+          llm_total_ms   int          first_llm + second_llm
+          total_ms       int          wall-clock per turn
+          tools          list[dict]   per-tool {"tool": str, "duration_ms": int}
+        """
+
+        def ms(seconds: float | None) -> int | None:
+            return None if seconds is None else int(seconds * 1000)
+
+        first_llm_ms = ms(t_first_llm_done)
+        rpc_ms = (
+            int((t_rpc_end - t_rpc_start) * 1000)
+            if t_rpc_start is not None and t_rpc_end is not None
+            else 0
+        )
+        second_llm_ms = (
+            int((t_second_llm_done - (t_rpc_end or t_first_llm_done or t_start)) * 1000)
+            if t_second_llm_done is not None
+            else 0
+        )
+        return {
+            "ttft_ms": ms(t_ttft),
+            "first_llm_ms": first_llm_ms,
+            "rpc_ms": rpc_ms,
+            "second_llm_ms": second_llm_ms,
+            "llm_total_ms": (first_llm_ms or 0) + second_llm_ms,
+            "total_ms": int((t_end - t_start) * 1000),
+            "tools": [
+                {"tool": t["name"], "duration_ms": int(t.get("duration_ms", 0))}
+                for t in tools
+            ],
+        }
 
     @staticmethod
     def _inject_connected_wallet(agent: dict[str, Any], tool_name: str, args: dict[str, Any]) -> dict[str, Any]:

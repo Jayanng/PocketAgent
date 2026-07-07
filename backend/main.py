@@ -12,7 +12,11 @@ try:
         close_openai_client_pool,
         ensure_openai_client_pool,
     )
-    from .services.pocket_rpc import PocketRPCClient
+    from .services.pocket_rpc import (
+        PocketRPCClient,
+        close_pocket_rpc_pool,
+        ensure_pocket_rpc_pool,
+    )
 except ImportError:
     from config import get_settings
     from database import init_db
@@ -21,7 +25,11 @@ except ImportError:
         close_openai_client_pool,
         ensure_openai_client_pool,
     )
-    from services.pocket_rpc import PocketRPCClient
+    from services.pocket_rpc import (
+        PocketRPCClient,
+        close_pocket_rpc_pool,
+        ensure_pocket_rpc_pool,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +38,13 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     await init_db()
     await ensure_openai_client_pool()
+    await ensure_pocket_rpc_pool()
     logger.info(PocketRPCClient.startup_note())
     try:
         yield
     finally:
         await close_openai_client_pool()
+        await close_pocket_rpc_pool()
 
 
 app = FastAPI(title="PocketAgent API", version="0.1.0", lifespan=lifespan)

@@ -26,6 +26,52 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+# -----------------------------------------------------------------------------
+# Shared httpx pool for Pocket RPC + REST traffic
+# -----------------------------------------------------------------------------
+# Reusing one httpx.AsyncClient across requests keeps the underlying TCP/TLS
+# sessions warm (DNS cached, TLS session reused, sockets kept alive). Without
+# this, every tool call re-opens a fresh handshake to *.api.pocket.network —
+# adding 150-300 ms of latency per relay from a trans-Atlantic Fly region to
+# Pocket's US-hosted gateways. The shared client is pre-warmed by the FastAPI
+# lifespan handler so the very first chat turn after a cold start still pays
+# the handshake cost only once per host, not once per call.
+_shared_rpc_http_client: httpx.AsyncClient | None = None
+_rpc_http_pool_lock = asyncio.Lock()
+
+
+async def ensure_pocket_rpc_pool() -> None:
+    """Eagerly build the module-shared httpx.AsyncClient used by every Pocket
+    RPC + REST call. Idempotent. Called from the FastAPI lifespan in main.py."""
+    global _shared_rpc_http_client
+    if _shared_rpc_http_client is not None:
+        return
+    async with _rpc_http_pool_lock:
+        if _shared_rpc_http_client is not None:
+            return
+        _shared_rpc_http_client = httpx.AsyncClient(
+            timeout=30.0,
+            limits=httpx.Limits(
+                max_connections=50,
+                max_keepalive_connections=20,
+                keepalive_expiry=60.0,
+            ),
+            headers={"User-Agent": "pocketagent/1.0"},
+        )
+        logger.info("Pocket RPC httpx pool warmed (max_connections=50, keepalive=20)")
+
+
+async def close_pocket_rpc_pool() -> None:
+    """Close the module-shared httpx.AsyncClient. Called from the FastAPI
+    lifespan shutdown so we never leave a connection pool open on app exit."""
+    global _shared_rpc_http_client
+    if _shared_rpc_http_client is None:
+        return
+    client = _shared_rpc_http_client
+    _shared_rpc_http_client = None
+    await client.aclose()
+
+
 # balanceOf(address) ERC-20 selector + zero-padded 32-byte address argument.
 _BALANCE_OF_SELECTOR = "70a08231"
 
@@ -155,17 +201,51 @@ class PocketRPCClient:
         query_params: dict[str, Any] | None = None,
         max_retries: int = 3,
     ) -> dict[str, Any]:
+        # Reuse the module-shared httpx pool when it's been pre-warmed by the
+        # FastAPI lifespan handler — TCP + TLS sessions stay alive across all
+        # chat turns, so only the FIRST call per (host, port) pays the
+        # handshake. In code paths that bypass the lifespan (tests, CLI
+        # executables), fall back to a short-lived client that's cleaned up
+        # on return so we don't leak sockets.
+        if _shared_rpc_http_client is not None:
+            client = _shared_rpc_http_client
+            owns_client = False
+        else:
+            client = httpx.AsyncClient(timeout=self.timeout)
+            owns_client = True
+        try:
+            return await self._perform_request_with_retries(
+                client,
+                http_method,
+                url,
+                json_payload=json_payload,
+                query_params=query_params,
+                max_retries=max_retries,
+            )
+        finally:
+            if owns_client:
+                await client.aclose()
+
+    async def _perform_request_with_retries(
+        self,
+        client: httpx.AsyncClient,
+        http_method: str,
+        url: str,
+        *,
+        json_payload: dict[str, Any] | None,
+        query_params: dict[str, Any] | None,
+        max_retries: int,
+    ) -> dict[str, Any]:
         last_response: httpx.Response | None = None
         last_error: Exception | None = None
         for attempt in range(max_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.request(
-                        http_method,
-                        url,
-                        json=json_payload,
-                        params=query_params,
-                    )
+                response = await client.request(
+                    http_method,
+                    url,
+                    json=json_payload,
+                    params=query_params,
+                )
                 last_response = response
                 if response.status_code in {408, 429, 503} and attempt < max_retries:
                     await asyncio.sleep(2**attempt)

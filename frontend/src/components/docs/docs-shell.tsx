@@ -28,13 +28,15 @@ export function DocsShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { theme } = useLandingTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobilePath, setMobilePath] = useState(pathname);
   const [query, setQuery] = useState("");
-  const [lastPathname, setLastPathname] = useState(pathname);
+  const isDrawerOpen = mobileOpen && mobilePath === pathname;
 
-  if (pathname !== lastPathname) {
-    setLastPathname(pathname);
-    setMobileOpen(false);
-  }
+  const openDrawer = () => {
+    setMobilePath(pathname);
+    setMobileOpen(true);
+  };
+  const closeDrawer = () => setMobileOpen(false);
 
   const filteredLinks = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -48,11 +50,11 @@ export function DocsShell({ children }: { children: React.ReactNode }) {
   }, [query]);
 
   useEffect(() => {
-    document.body.style.overflow = mobileOpen ? "hidden" : "";
+    document.body.style.overflow = isDrawerOpen ? "hidden" : "";
     return () => {
       document.body.style.overflow = "";
     };
-  }, [mobileOpen]);
+  }, [isDrawerOpen]);
 
   const sidebar = (
     <div className="flex h-full flex-col">
@@ -153,7 +155,7 @@ export function DocsShell({ children }: { children: React.ReactNode }) {
       <div className="relative z-10 mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 md:pt-8">
         <button
           type="button"
-          onClick={() => setMobileOpen(true)}
+          onClick={openDrawer}
           className="mb-4 inline-flex items-center gap-2 rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-[13px] font-medium lg:hidden"
         >
           <Menu size={16} />
@@ -169,12 +171,12 @@ export function DocsShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      {mobileOpen && (
+      {isDrawerOpen && (
         <>
           <button
             type="button"
             className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
-            onClick={() => setMobileOpen(false)}
+            onClick={closeDrawer}
             aria-label="Close docs menu"
           />
           <aside className="safe-top safe-bottom fixed inset-y-0 left-0 z-50 flex w-[min(100vw,18rem)] flex-col border-r border-white/10 bg-[#0a0f14]/95 p-5 shadow-2xl backdrop-blur-xl lg:hidden">
@@ -182,7 +184,7 @@ export function DocsShell({ children }: { children: React.ReactNode }) {
               <span className="text-[13px] font-semibold">Docs</span>
               <button
                 type="button"
-                onClick={() => setMobileOpen(false)}
+                onClick={closeDrawer}
                 className="rounded-lg border border-white/15 p-1.5 opacity-70"
               >
                 <X size={16} />

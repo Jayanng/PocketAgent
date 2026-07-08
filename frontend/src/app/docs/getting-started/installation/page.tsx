@@ -10,6 +10,7 @@ import {
   DocsTable,
 } from "@/components/docs/docs-ui";
 import { DOCS_VERSION } from "@/lib/docs/nav";
+import { DOCS_SNIPPETS } from "@/lib/docs/snippets";
 
 export default function InstallationPage() {
   return (
@@ -39,7 +40,7 @@ export default function InstallationPage() {
         </DocsP>
 
         <DocsH3>Optional REST API extras</DocsH3>
-        <CodeBlock>{`pip install "pokt-agent-mcp[api]"`}</CodeBlock>
+        <CodeBlock>{DOCS_SNIPPETS.pipInstallMcpApi}</CodeBlock>
         <DocsP>Includes FastAPI and Uvicorn if you want to run the full backend from the installed package.</DocsP>
 
         <DocsH2 id="source">Install from source</DocsH2>

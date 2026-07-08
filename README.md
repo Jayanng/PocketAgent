@@ -337,7 +337,7 @@ PocketAgent ships as a **pip-installable MCP server**. Developers can add Pocket
 ### Install
 
 ```bash
-pip install pocketagent
+pip install pokt-agent-mcp
 ```
 
 Or from source:

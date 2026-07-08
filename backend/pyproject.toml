@@ -3,8 +3,8 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pocketagent"
-version = "1.0.0"
+name = "pokt-agent-mcp"
+version = "1.0.1"
 description = "AI agents that reason about and interact with 52 blockchains — via Model Context Protocol"
 readme = "README.md"
 license = "MIT"

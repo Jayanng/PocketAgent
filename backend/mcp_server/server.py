@@ -57,7 +57,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-PACKAGE_VERSION = "1.0.0"
+PACKAGE_VERSION = "1.0.1"
 
 # Capabilities that need an agent context. Native transfer executors use
 # protocol-specific encrypted keys for signing.

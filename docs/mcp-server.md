@@ -55,7 +55,7 @@ MCP client (Claude Desktop / Codex)
 ### pip install (recommended)
 
 ```bash
-pip install pocketagent
+pip install pokt-agent-mcp
 ```
 
 After install, the `pocketagent-mcp` command is available in your PATH.

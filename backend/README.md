@@ -1,4 +1,4 @@
-# pocketagent
+# pokt-agent-mcp
 
 **MCP server for 52 blockchains via [Pocket Network](https://www.pokt.network/) decentralized RPC.**
 
@@ -7,13 +7,13 @@ Install the package to add PocketAgent's 51 blockchain tools, 5 resources, and 4
 ## Install
 
 ```bash
-pip install pocketagent
+pip install pokt-agent-mcp
 ```
 
 Optional REST API dependencies (FastAPI + Uvicorn):
 
 ```bash
-pip install "pocketagent[api]"
+pip install "pokt-agent-mcp[api]"
 ```
 
 ## Run

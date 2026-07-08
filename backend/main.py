@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 import logging
 
@@ -7,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 try:
     from .config import get_settings
     from .database import init_db
-    from .routers import agents, analytics, chat
+    from .routers import agents, analytics, chat, scheduled_tasks
     from .services.ai_agent import (
         close_openai_client_pool,
         ensure_openai_client_pool,
@@ -17,10 +18,11 @@ try:
         close_pocket_rpc_pool,
         ensure_pocket_rpc_pool,
     )
+    from .services.scheduler import ensure_schema, scheduler_loop
 except ImportError:
     from config import get_settings
     from database import init_db
-    from routers import agents, analytics, chat
+    from routers import agents, analytics, chat, scheduled_tasks
     from services.ai_agent import (
         close_openai_client_pool,
         ensure_openai_client_pool,
@@ -30,6 +32,7 @@ except ImportError:
         close_pocket_rpc_pool,
         ensure_pocket_rpc_pool,
     )
+    from services.scheduler import ensure_schema, scheduler_loop
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +43,17 @@ async def lifespan(app: FastAPI):
     await ensure_openai_client_pool()
     await ensure_pocket_rpc_pool()
     logger.info(PocketRPCClient.startup_note())
+    await ensure_schema()
+    app.state.scheduler_stop = asyncio.Event()
+    app.state.scheduler_task = asyncio.create_task(scheduler_loop(app.state.scheduler_stop))
     try:
         yield
     finally:
+        app.state.scheduler_stop.set()
+        try:
+            await app.state.scheduler_task
+        except Exception:
+            logger.exception("scheduler task shutdown error")
         await close_openai_client_pool()
         await close_pocket_rpc_pool()
 
@@ -62,6 +73,7 @@ app.add_middleware(
 app.include_router(chat.router)
 app.include_router(agents.router)
 app.include_router(analytics.router)
+app.include_router(scheduled_tasks.router)
 
 
 @app.get("/health")

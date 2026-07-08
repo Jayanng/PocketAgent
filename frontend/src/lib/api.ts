@@ -245,6 +245,47 @@ export type ReissueResponse = {
   agent?: Agent;
 };
 
+// ─── Scheduled tasks ────────────────────────────────────────────────────────
+
+export type ScheduledTask = {
+  id: string;
+  agent_id: string;
+  prompt: string;
+  interval_seconds: number;
+  next_run_at: number;
+  enabled: number;
+  last_result: string | null;
+  last_error: string | null;
+  last_run_at: number | null;
+  run_count: number;
+  created_at: number;
+};
+
+export type ScheduledTaskCreateInput = {
+  agent_id: string;
+  prompt: string;
+  interval_seconds: number;
+};
+
+export type ScheduledTaskUpdateInput = {
+  enabled?: boolean;
+  interval_seconds?: number;
+  prompt?: string;
+};
+
+export type ScheduledTaskRunStats = {
+  started_at: number;
+  finished_at: number | null;
+  relay_count: number;
+  success: boolean | null;
+};
+
+export type ScheduledTaskRelayStats = {
+  total_relays_last_10_runs: number;
+  avg_relays_per_run: number;
+  runs: ScheduledTaskRunStats[];
+};
+
 export function getAgentAccessToken(agentId: string): string | null {
   return tokenStore.get(agentId);
 }
@@ -425,7 +466,10 @@ export const api = {
           buffer = buffer.slice(boundary + 2);
           const parsed = parseSseBlock(block);
           if (parsed) {
-            params.onEvent({ event: parsed.event, data: parsed.data });
+            params.onEvent({
+              event: parsed.event,
+              data: parsed.data as Record<string, unknown>,
+            });
           }
           boundary = buffer.indexOf("\n\n");
         }
@@ -523,6 +567,50 @@ export const api = {
       const params = new URLSearchParams({ address });
       if (chains?.length) params.set("chains", chains.join(","));
       return request<Portfolio>(`/api/analytics/portfolio?${params}`);
+    },
+  },
+  scheduledTasks: {
+    list(agentId: string, accessToken = getAgentAccessToken(agentId)) {
+      return request<ScheduledTask[]>(
+        `/api/scheduled-tasks?agent_id=${encodeURIComponent(agentId)}`,
+        { accessToken },
+      );
+    },
+    get(id: string, agentId: string, accessToken = getAgentAccessToken(agentId)) {
+      return request<ScheduledTask>(`/api/scheduled-tasks/${encodeURIComponent(id)}`, {
+        accessToken,
+      });
+    },
+    create(input: ScheduledTaskCreateInput, accessToken = getAgentAccessToken(input.agent_id)) {
+      return request<ScheduledTask>("/api/scheduled-tasks", {
+        method: "POST",
+        accessToken,
+        body: JSON.stringify(input),
+      });
+    },
+    update(
+      id: string,
+      agentId: string,
+      patch: ScheduledTaskUpdateInput,
+      accessToken = getAgentAccessToken(agentId),
+    ) {
+      return request<ScheduledTask>(`/api/scheduled-tasks/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        accessToken,
+        body: JSON.stringify(patch),
+      });
+    },
+    delete(id: string, agentId: string, accessToken = getAgentAccessToken(agentId)) {
+      return request<void>(`/api/scheduled-tasks/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        accessToken,
+      });
+    },
+    relayStats(id: string, agentId: string, accessToken = getAgentAccessToken(agentId)) {
+      return request<ScheduledTaskRelayStats>(
+        `/api/scheduled-tasks/${encodeURIComponent(id)}/relay-stats`,
+        { accessToken },
+      );
     },
   },
 };

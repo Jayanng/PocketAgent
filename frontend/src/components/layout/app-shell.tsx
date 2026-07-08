@@ -7,6 +7,7 @@ import {
   Gauge,
   MessageSquare,
   Bot,
+  CalendarClock,
 } from "lucide-react";
 import { SiteHeader } from "@/components/layout/site-header";
 import { RpcBanner } from "@/components/ui/rpc-banner";
@@ -19,6 +20,7 @@ const navItems = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
   { href: "/agents", label: "Agents", icon: Bot },
+  { href: "/scheduled-tasks", label: "Scheduled Tasks", icon: CalendarClock },
 ] as const;
 
 type AppShellProps = {
@@ -67,7 +69,12 @@ export function AppShell({ children }: AppShellProps) {
   }, [router, shortcutsVisible]);
 
   useEffect(() => {
-    if (pathname.startsWith("/chat") || pathname.startsWith("/agents") || pathname.startsWith("/dashboard")) {
+    if (
+      pathname.startsWith("/chat") ||
+      pathname.startsWith("/agents") ||
+      pathname.startsWith("/dashboard") ||
+      pathname.startsWith("/scheduled-tasks")
+    ) {
       void loadAgents();
     }
   }, [pathname, loadAgents]);
@@ -139,7 +146,7 @@ export function AppShell({ children }: AppShellProps) {
         className="mobile-bottom-nav safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-border/40 bg-card/95 backdrop-blur-xl md:hidden"
         aria-label="Mobile navigation"
       >
-        <div className="mx-auto grid max-w-lg grid-cols-3 gap-1 px-2 pt-2">
+        <div className="mx-auto grid max-w-lg grid-cols-4 gap-1 px-2 pt-2">
           {navItems.map((item) => {
             const isActive = pathname.startsWith(item.href);
             const Icon = item.icon;

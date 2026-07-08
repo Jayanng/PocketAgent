@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { BookOpen, ExternalLink, Menu, Search, X } from "lucide-react";
-import { SiteHeader } from "@/components/layout/site-header";
+import { MarketingHeader } from "@/components/layout/marketing-header";
 import { useLandingTheme } from "@/hooks/use-landing-theme";
 import { DOCS_EXTERNAL_LINKS, DOCS_FLAT_LINKS, DOCS_NAV, DOCS_VERSION } from "@/lib/docs/nav";
 import { cn } from "@/lib/utils";
@@ -146,7 +146,7 @@ export function DocsShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="landing-page relative min-h-[100dvh]" data-landing-theme={theme}>
       <GradientBackground />
-      <SiteHeader />
+      <MarketingHeader />
 
       <div className="relative z-10 mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 md:pt-8">
         <button

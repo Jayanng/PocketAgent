@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { AppProviders } from "@/components/providers";
-import { WalletProvider } from "@/components/wallet/wallet-provider";
 import { ToastProvider } from "@/components/ui/toast";
+import "../../tokens.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -36,9 +36,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: bootstrapScript }}
         />
         <AppProviders>
-          <WalletProvider>
-            <ToastProvider>{children}</ToastProvider>
-          </WalletProvider>
+          <ToastProvider>{children}</ToastProvider>
         </AppProviders>
       </body>
     </html>

@@ -3,15 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useAccount } from "wagmi";
-import { Menu, WalletCards, X } from "lucide-react";
+import { ArrowRight, Menu, X } from "lucide-react";
 
 import { Logo } from "@/components/brand/logo";
 import { SITE_NAV_ITEMS } from "@/components/layout/nav-items";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
-import { BalanceDisplay } from "@/components/wallet/balance-display";
-import { ConnectButton } from "@/components/wallet/connect-button";
-import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
 import { CHAIN_CONFIGS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
@@ -37,12 +33,12 @@ function navLinkClassName(isActive: boolean, isLanding: boolean, size: "desktop"
   );
 }
 
-export function SiteHeader() {
+/** Lightweight header for /docs — no RainbowKit/Wagmi bundle. */
+export function MarketingHeader() {
   const pathname = usePathname();
   const isLanding = pathname === "/";
-  const { isConnected } = useAccount();
+  const isDocs = pathname.startsWith("/docs");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [balancesOpen, setBalancesOpen] = useState(false);
   const [lastPathname, setLastPathname] = useState(pathname);
   const chainCount = Object.keys(CHAIN_CONFIGS).length;
 
@@ -85,7 +81,7 @@ export function SiteHeader() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={navLinkClassName(isActive, isLanding, "desktop")}
+                  className={navLinkClassName(isActive, isLanding || isDocs, "desktop")}
                 >
                   <Icon size={14} />
                   {item.label}
@@ -96,18 +92,13 @@ export function SiteHeader() {
 
           <div className="hidden items-center gap-3 md:flex">
             <ThemeToggle />
-            {isConnected && (
-              <button
-                type="button"
-                onClick={() => setBalancesOpen(true)}
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-3.5 py-2 text-xs font-semibold text-muted-foreground shadow-sm transition-all duration-200 hover:border-border hover:bg-muted/40 hover:text-foreground"
-                title="View multi-chain wallet balances"
-              >
-                <WalletCards size={14} className="text-primary/70" />
-                <span>Balances</span>
-              </button>
-            )}
-            <ConnectButton />
+            <Link
+              href="/agents"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-primary/25 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary transition hover:bg-primary/15"
+            >
+              Open App
+              <ArrowRight size={13} />
+            </Link>
           </div>
 
           <div className="flex items-center gap-2 md:hidden">
@@ -156,7 +147,7 @@ export function SiteHeader() {
                       key={item.href}
                       href={item.href}
                       onClick={() => setSidebarOpen(false)}
-                      className={navLinkClassName(isActive, isLanding, "mobile")}
+                      className={navLinkClassName(isActive, isLanding || isDocs, "mobile")}
                     >
                       <Icon size={16} />
                       {item.label}
@@ -164,67 +155,27 @@ export function SiteHeader() {
                   );
                 })}
               </nav>
-
-              {isConnected && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSidebarOpen(false);
-                    setBalancesOpen(true);
-                  }}
-                  className="flex w-full cursor-pointer items-center gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-[14px] font-semibold text-muted-foreground transition-all hover:bg-muted/40 hover:text-foreground"
-                >
-                  <WalletCards size={16} className="text-primary/70" />
-                  <span>Wallet & Agent Balances</span>
-                </button>
-              )}
             </div>
 
             <div className="space-y-4 border-t border-border/40 pt-4">
-              <div className="flex items-center justify-between rounded-lg border border-border/30 bg-muted/20 p-3">
-                <div>
-                  <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">
-                    Appearance
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-foreground">Light / Dark mode</p>
-                </div>
-                <ThemeToggle />
-              </div>
-
               <div className="rounded-lg border border-border/30 bg-muted/20 p-3">
                 <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">
                   Network Status
                 </p>
-                <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-                  </span>
-                  <span>{chainCount} chains active</span>
-                </p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">Pocket Network RPC gateway</p>
+                <p className="mt-1 text-xs font-semibold text-foreground">{chainCount} chains active</p>
               </div>
-
-              <div onClick={() => setSidebarOpen(false)}>
-                <ConnectButton layout="vertical" />
-              </div>
+              <Link
+                href="/agents"
+                onClick={() => setSidebarOpen(false)}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground"
+              >
+                Open App
+                <ArrowRight size={15} />
+              </Link>
             </div>
           </aside>
         </>
       )}
-
-      <Dialog open={balancesOpen} onOpenChange={setBalancesOpen}>
-        <DialogContent className="max-w-md rounded-2xl border border-border/50 bg-card/90 shadow-2xl backdrop-blur-xl">
-          <DialogHeader
-            title="RPC Balances"
-            description="Live native balances queried through decentralized Pocket Network gateway."
-            onClose={() => setBalancesOpen(false)}
-          />
-          <div className="max-h-[70vh] overflow-y-auto p-4">
-            <BalanceDisplay className="border-0 bg-transparent p-0" />
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

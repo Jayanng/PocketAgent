@@ -85,12 +85,78 @@ def function_schema(
     }
 
 
-def get_tool_schemas(capabilities: set[str]) -> list[dict[str, Any]]:
-    return [
-        spec.schema
-        for spec in TOOL_REGISTRY.values()
-        if spec.capability in capabilities or spec.capability == "read" and "read" in capabilities
-    ]
+_PROTOCOL_PREFIXES: dict[str, tuple[str, ...]] = {
+    "evm": ("evm_",),
+    "solana": ("solana_",),
+    "cosmos": ("cosmos_",),
+    "sui": ("sui_",),
+    "near": ("near_",),
+    "tron": ("tron_",),
+}
+
+_PROTOCOL_NAMED_TOOLS: dict[str, str] = {
+    "send_erc20": "evm",
+    "send_spl_token": "solana",
+    "send_ibc_token": "cosmos",
+    "send_cw20_token": "cosmos",
+    "send_sui_token": "sui",
+    "send_nep141_token": "near",
+    "send_trc20_token": "tron",
+}
+
+
+def _tool_protocols(tool_name: str) -> set[str] | None:
+    """Protocols a tool exclusively targets. ``None`` = cross-protocol / always eligible."""
+    for protocol, prefixes in _PROTOCOL_PREFIXES.items():
+        if any(tool_name.startswith(prefix) for prefix in prefixes):
+            return {protocol}
+    mapped = _PROTOCOL_NAMED_TOOLS.get(tool_name)
+    return {mapped} if mapped else None
+
+
+def _agent_protocols(agent_chains: list[str] | None) -> set[str] | None:
+    if not agent_chains:
+        return None
+    try:
+        from ..services.chain_registry import canonical_chain, get_chain_metadata
+    except ImportError:
+        from services.chain_registry import canonical_chain, get_chain_metadata
+
+    protocols: set[str] = set()
+    for chain in agent_chains:
+        try:
+            protocols.add(get_chain_metadata(canonical_chain(chain))["protocol"])
+        except KeyError:
+            continue
+    return protocols or None
+
+
+def get_tool_schemas(
+    capabilities: set[str],
+    agent_chains: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Return OpenAI tool schemas for an agent.
+
+    When ``agent_chains`` is provided, protocol-specific tools that do not
+    match any enabled chain family are omitted. This shrinks the prompt sent
+    to the LLM on every chat turn — a major TTFT win on Fly where a 70B
+    model must ingest 30–40 tool definitions before the first token.
+    """
+    allowed_protocols = _agent_protocols(agent_chains)
+    schemas: list[dict[str, Any]] = []
+    for spec in TOOL_REGISTRY.values():
+        if not (
+            spec.capability in capabilities
+            or spec.capability == "read"
+            and "read" in capabilities
+        ):
+            continue
+        if allowed_protocols is not None:
+            required = _tool_protocols(spec.name)
+            if required is not None and required.isdisjoint(allowed_protocols):
+                continue
+        schemas.append(spec.schema)
+    return schemas
 
 
 async def execute_tool(name: str, context: ToolContext, args: dict[str, Any]) -> Any:

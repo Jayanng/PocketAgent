@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     # OPENAI_MAX_TOKENS) without touching code.
     openai_temperature: float = 0.3
     openai_max_tokens: int = 1024
+    # LLM HTTP bounds — 45s×2 retries was too tight for Llama-70B + tool
+    # schemas on Fly (chat_timing_partial … reason=client_error at ~91s with
+    # ttft=-1). Override per deploy via env.
+    openai_read_timeout: float = 90.0
+    openai_connect_timeout: float = 10.0
+    openai_max_retries: int = 1
     # Number of prior messages replayed as context each turn. A smaller window
     # means a smaller prompt → faster time-to-first-token and lower cost.
     chat_history_limit: int = 20
@@ -103,6 +109,13 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return parse_csv_setting(self.cors_origins)
+
+    @property
+    def llm_phase_budget_ms(self) -> int:
+        """Wall-clock ceiling for one LLM phase (read × retries + connect)."""
+        attempts = max(1, self.openai_max_retries + 1)
+        seconds = self.openai_connect_timeout + (self.openai_read_timeout * attempts)
+        return int(seconds * 1000)
 
     model_config = SettingsConfigDict(env_file=str(BACKEND_DIR / ".env"), env_file_encoding="utf-8")
 

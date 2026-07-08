@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 type ChatMessageProps = {
   message?: APIChatMessage & { id?: string; tokens_used?: number };
   loading?: boolean;
+  /** Shown inside an empty assistant bubble while the stream is in flight. */
+  streamingHint?: "thinking" | "rpc" | null;
 };
 
 const chainNamesFromCalls = (calls: ChainCall[]) => {
@@ -176,7 +178,25 @@ function ConfirmationBadge({
   );
 }
 
-export function ChatMessage({ message, loading = false }: ChatMessageProps) {
+function StreamingHint({ hint }: { hint: "thinking" | "rpc" }) {
+  const label = hint === "rpc" ? "Querying Pocket RPC…" : "Thinking…";
+  return (
+    <div className="flex items-center gap-2 pl-1 text-sm text-muted-foreground" aria-label={label}>
+      <div className="flex h-5 items-center gap-1.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse-soft" />
+        <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse-soft [animation-delay:200ms]" />
+        <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse-soft [animation-delay:400ms]" />
+      </div>
+      <span className="font-mono text-[11px]">{label}</span>
+    </div>
+  );
+}
+
+export function ChatMessage({
+  message,
+  loading = false,
+  streamingHint = null,
+}: ChatMessageProps) {
   const isUser = message?.role === "user";
   const chains = message ? chainNamesFromCalls(message.chain_calls) : [];
 
@@ -203,13 +223,15 @@ export function ChatMessage({ message, loading = false }: ChatMessageProps) {
           )}
         >
           {loading ? (
-            <div className="flex h-5 items-center gap-1.5 pl-1" aria-label="Waiting for assistant response">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse-soft" />
-              <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse-soft [animation-delay:200ms]" />
-              <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse-soft [animation-delay:400ms]" />
-            </div>
+            <StreamingHint hint="thinking" />
           ) : message?.role === "assistant" ? (
-            <MarkdownContent content={message.content} />
+            message.content ? (
+              <MarkdownContent content={message.content} />
+            ) : streamingHint ? (
+              <StreamingHint hint={streamingHint} />
+            ) : (
+              <StreamingHint hint="thinking" />
+            )
           ) : (
             <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/95">
               {message?.content}

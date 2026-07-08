@@ -344,7 +344,7 @@ export const api = {
       return request<ChatResponse>("/api/chat", {
         method: "POST",
         accessToken,
-        signal: AbortSignal.timeout(180_000),
+        signal: AbortSignal.timeout(240_000),
         body: JSON.stringify({
           message,
           agent_id: agentId,
@@ -388,7 +388,7 @@ export const api = {
           conversation_id: params.conversationId,
           connected_wallet_address: params.connectedWalletAddress,
         }),
-        signal: params.signal ?? AbortSignal.timeout(180_000),
+        signal: params.signal ?? AbortSignal.timeout(240_000),
       });
 
       if (!response.ok) {

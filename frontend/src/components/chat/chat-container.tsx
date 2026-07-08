@@ -28,7 +28,7 @@ export function ChatContainer() {
   const requestedAgentId = searchParams.get("agent");
   const { address, isConnected } = useAccount();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef<HTMLDivElement | null>(null);
 
   const {
     agents,
@@ -44,6 +44,7 @@ export function ChatContainer() {
     isLoading,
     isBootstrapping,
     activeChains,
+    streamingHint,
     error,
     initialize,
     sendMessage,
@@ -71,8 +72,11 @@ export function ChatContainer() {
     }
   }, [agents, requestedAgentId, selectAgent, selectedAgentId]);
 
+  // Scroll only the message pane — never scrollIntoView (that shifts the fixed input bar).
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const pane = messagesRef.current;
+    if (!pane) return;
+    pane.scrollTo({ top: pane.scrollHeight, behavior: "smooth" });
   }, [messages, isLoading]);
 
   const agent = selectedAgent ?? agents.find((item) => item.id === selectedAgentId);
@@ -157,9 +161,12 @@ export function ChatContainer() {
           </div>
         )}
 
-        <div className="flex-1 min-h-0 relative overflow-hidden">
-          <ScrollArea className="h-full w-full">
-            <div className="mx-auto w-full max-w-3xl space-y-6 px-3 py-6 pb-40 sm:px-6 sm:py-8 sm:pb-36">
+        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+          <ScrollArea
+            ref={messagesRef}
+            className="min-h-0 flex-1 w-full overscroll-contain"
+          >
+            <div className="mx-auto w-full max-w-3xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
               {!messages.length && !isLoading && (
                 <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-8 py-8 animate-fade-in">
                   <div className="flex flex-col items-center gap-4 text-center">
@@ -217,20 +224,26 @@ export function ChatContainer() {
               )}
 
               {messages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
+                <ChatMessage
+                  key={message.id}
+                  message={message}
+                  streamingHint={
+                    isLoading && message.role === "assistant" && !message.content
+                      ? streamingHint ?? "thinking"
+                      : null
+                  }
+                />
               ))}
-              {isLoading && <ChatMessage loading />}
-              <div ref={bottomRef} />
             </div>
           </ScrollArea>
 
-          <div className="safe-bottom pointer-events-none absolute bottom-0 left-0 right-0 z-10 flex flex-col items-center bg-gradient-to-t from-background via-background/95 to-transparent p-3 sm:p-6">
-            <div className="w-full max-w-3xl pointer-events-auto">
+          <footer className="safe-bottom shrink-0 border-t border-border/30 bg-background/95 backdrop-blur-md px-3 py-3 sm:px-6 sm:py-4">
+            <div className="mx-auto w-full max-w-3xl">
               <ChatInput
                 disabled={isLoading || !selectedAgentId || isBootstrapping}
                 onSend={(message) => void sendMessage(message)}
               />
-              <div className="flex min-h-5 items-center justify-between gap-3 text-[10px] text-muted-foreground/45 px-2 mt-1">
+              <div className="mt-1 flex min-h-5 items-center justify-between gap-3 px-2 text-[10px] text-muted-foreground/45">
                 <span className="truncate font-mono uppercase tracking-wider">
                   {agent
                     ? `${agent.chains.length} chains active · ${agent.name}`
@@ -244,7 +257,7 @@ export function ChatContainer() {
                 )}
               </div>
             </div>
-          </div>
+          </footer>
         </div>
       </div>
     </section>

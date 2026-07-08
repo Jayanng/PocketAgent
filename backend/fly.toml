@@ -27,6 +27,8 @@ primary_region = 'iad'
   processes = ['app']
 
 [[vm]]
-  memory = '1gb'
+  # Chat turns stream JSON tool schemas + SSE frames; 2 shared CPUs cuts
+  # first-token latency vs the default 1-CPU shared machine.
+  memory = '2gb'
   cpu_kind = 'shared'
-  cpus = 1
+  cpus = 2

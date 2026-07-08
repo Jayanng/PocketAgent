@@ -22,6 +22,8 @@ type ChatState = {
   isLoading: boolean;
   isBootstrapping: boolean;
   activeChains: string[];
+  /** Drives the in-bubble status line while a streamed turn is in flight. */
+  streamingHint: "thinking" | "rpc" | null;
   connectedWalletAddress: string | null;
   error: string | null;
   setConnectedWalletAddress: (address: string | null) => void;
@@ -140,6 +142,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isLoading: false,
   isBootstrapping: true,
   activeChains: [],
+  streamingHint: null,
   connectedWalletAddress: null,
   error: null,
 
@@ -196,6 +199,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [...state.messages, userMessage, emptyAssistant],
       isLoading: true,
       activeChains: selectedAgent?.chains ?? [],
+      streamingHint: "thinking",
       error: null,
     });
 
@@ -223,12 +227,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (kind === "text_delta" && typeof data.text === "string") {
             const t = data.text;
             set((cur) => ({
+              streamingHint: null,
               messages: cur.messages.map((m) =>
                 m.id === assistantId
                   ? { ...m, content: (m.content ?? "") + t }
                   : m,
               ),
             }));
+            return;
+          }
+          if (kind === "tool_calls_start") {
+            set({ streamingHint: "rpc" });
             return;
           }
           if (kind === "tool_call") {
@@ -399,6 +408,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentConversationId: null,
       messages: [],
       activeChains: [],
+      streamingHint: null,
       error: null,
     });
   },

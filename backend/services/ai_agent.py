@@ -71,18 +71,20 @@ async def ensure_openai_client_pool() -> None:
         _shared_openai_client = AsyncOpenAI(
             api_key=api_key,
             base_url=settings.openai_base_url,
-            # Bound the worst-case wall-clock per LLM call. SDK defaults are
-            # 600s read timeout with 2 retries (i.e. up to ~30 min per call),
-            # which is why a single chat turn could hang for 27 minutes on a
-            # failing upstream. 45s × 1 retry ⇒ ≤90s, exactly matching the
-            # first-LLM budget we promised the FE. `connect=10s` keeps the
-            # initial handshake fail-fast.
-            timeout=httpx.Timeout(45.0, connect=10.0),
-            max_retries=1,
+            timeout=httpx.Timeout(
+                settings.openai_read_timeout,
+                connect=settings.openai_connect_timeout,
+            ),
+            max_retries=settings.openai_max_retries,
         )
         logger.info(
-            "OpenAI client pool warmed (base_url=%s timeout=45s max_retries=1)",
+            "OpenAI client pool warmed (base_url=%s read_timeout=%ss connect=%ss "
+            "max_retries=%d phase_budget_ms=%d)",
             settings.openai_base_url,
+            settings.openai_read_timeout,
+            settings.openai_connect_timeout,
+            settings.openai_max_retries,
+            settings.llm_phase_budget_ms,
         )
 
 
@@ -136,8 +138,11 @@ class AIAgentService:
             self._openai_client = _shared_openai_client or AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=self.settings.openai_base_url,
-                timeout=httpx.Timeout(45.0, connect=10.0),
-                max_retries=1,
+                timeout=httpx.Timeout(
+                    self.settings.openai_read_timeout,
+                    connect=self.settings.openai_connect_timeout,
+                ),
+                max_retries=self.settings.openai_max_retries,
             )
         return self._openai_client
 
@@ -336,13 +341,22 @@ class AIAgentService:
             else:
                 code = "llm_error"
             early_return_reason = "client_error"
+            logger.warning(
+                "chat_client_error agent=%s phase=%s code=%s elapsed_ms=%d budget_ms=%d detail=%s",
+                agent_id,
+                phase,
+                code,
+                elapsed_ms,
+                self.settings.llm_phase_budget_ms,
+                str(exc)[:300],
+            )
             return {
                 "event": "client_error",
                 "code": code,
                 "phase": phase,
                 "detail": str(exc)[:512],
                 "elapsed_ms": elapsed_ms,
-                "phase_budget_ms": self.PHASE_BUDGET_MS,
+                "phase_budget_ms": self.settings.llm_phase_budget_ms,
                 "timing": self._build_timing_dict(
                     t_start=t_start,
                     t_ttft=t_ttft,
@@ -401,6 +415,12 @@ class AIAgentService:
                 )
                 messages = self._build_openai_messages(agent=agent, history=history)
                 tools = self.get_tool_definitions(agent)
+                logger.info(
+                    "chat_tools agent=%s tool_count=%d chains=%d",
+                    agent_id,
+                    len(tools),
+                    len(agent.get("chains") or []),
+                )
 
                 # ---------- First LLM stream ----------
                 accumulated_text = ""
@@ -698,7 +718,8 @@ class AIAgentService:
     def get_tool_definitions(self, agent: dict[str, Any]) -> list[dict[str, Any]]:
         """Return OpenAI function definitions based on agent capabilities."""
         capabilities = set(agent.get("capabilities") or [])
-        return get_tool_schemas(capabilities)
+        chains = agent.get("chains") or []
+        return get_tool_schemas(capabilities, agent_chains=list(chains) if chains else None)
 
     async def close(self) -> None:
         # Only close the client when this service instance owns it. If the

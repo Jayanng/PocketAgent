@@ -89,8 +89,25 @@ export function AppShell({ children }: AppShellProps) {
     return () => clearInterval(interval);
   }, []);
 
+  const isChat = pathname.startsWith("/chat");
+
+  // Lock the document scroll on chat — only the message pane scrolls (Claude-style).
+  useEffect(() => {
+    if (!isChat) return;
+    const previous = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.documentElement.style.overflow = previous;
+    };
+  }, [isChat]);
+
   return (
-    <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
+    <div
+      className={cn(
+        "bg-background text-foreground flex flex-col",
+        isChat ? "h-dvh overflow-hidden" : "min-h-[100dvh]",
+      )}
+    >
       {rpcDown && (
         <RpcBanner
           visible={rpcDown}
@@ -109,10 +126,10 @@ export function AppShell({ children }: AppShellProps) {
       {/* Main Page Layout Container */}
       <main
         className={cn(
-          "w-full flex-1 min-h-0 app-main-mobile",
-          pathname.startsWith("/chat")
-            ? "h-[calc(100dvh-3.5rem-4.5rem)] p-0 md:h-[calc(100dvh-4rem)]"
-            : "mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-6 md:px-8 md:py-8"
+          "w-full min-h-0 flex-1",
+          isChat
+            ? "flex flex-col overflow-hidden p-0 pb-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:pb-0"
+            : "app-main-mobile mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-6 md:px-8 md:py-8",
         )}
       >
         {children}

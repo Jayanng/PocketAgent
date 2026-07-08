@@ -12,7 +12,6 @@ import { ChatInput } from "@/components/chat/chat-input";
 import { ChatMessage } from "@/components/chat/chat-message";
 import { ChatSidebar } from "@/components/chat/chat-sidebar";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useChatStore, teardownConversationStream } from "@/store/chat-store";
 import { useAgentStore } from "@/store/agent-store";
 
@@ -72,11 +71,11 @@ export function ChatContainer() {
     }
   }, [agents, requestedAgentId, selectAgent, selectedAgentId]);
 
-  // Scroll only the message pane — never scrollIntoView (that shifts the fixed input bar).
+  // Scroll only the message pane — instant scroll avoids composer jank in Chrome.
   useEffect(() => {
     const pane = messagesRef.current;
     if (!pane) return;
-    pane.scrollTo({ top: pane.scrollHeight, behavior: "smooth" });
+    pane.scrollTop = pane.scrollHeight;
   }, [messages, isLoading]);
 
   const agent = selectedAgent ?? agents.find((item) => item.id === selectedAgentId);
@@ -98,7 +97,7 @@ export function ChatContainer() {
         onRefresh={() => void refreshWorkspace()}
       />
 
-      <div className="flex flex-col flex-1 h-full min-h-0 min-w-0 bg-background">
+      <div className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[auto_1fr_auto] bg-background">
         <header className="z-10 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border/30 bg-card/15 px-3 backdrop-blur-md sm:h-16 sm:px-6">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <Button
@@ -154,21 +153,26 @@ export function ChatContainer() {
           </div>
         </header>
 
-        {error && (
-          <div className="z-10 mx-3 mt-3 flex items-start gap-2.5 rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-3 text-xs font-mono text-red-400 shadow-sm animate-slide-up sm:mx-6 sm:px-4">
-            <AlertCircle className="mt-0.5 shrink-0" size={14} />
-            <span className="break-words">{error}</span>
-          </div>
-        )}
-
-        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-          <ScrollArea
-            ref={messagesRef}
-            className="min-h-0 flex-1 w-full overscroll-contain"
+        <div
+          ref={messagesRef}
+          className="min-h-0 overflow-y-auto overscroll-contain"
+        >
+          <div
+            className={
+              !messages.length && !isLoading
+                ? "mx-auto flex min-h-full w-full max-w-3xl flex-col px-3 py-6 sm:px-6 sm:py-8"
+                : "mx-auto w-full max-w-3xl space-y-6 px-3 py-6 sm:px-6 sm:py-8"
+            }
           >
-            <div className="mx-auto w-full max-w-3xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
-              {!messages.length && !isLoading && (
-                <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-8 py-8 animate-fade-in">
+            {error && (
+              <div className="sticky top-0 z-10 flex items-start gap-2.5 rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-3 text-xs font-mono text-red-400 shadow-sm backdrop-blur-md animate-slide-up sm:px-4">
+                <AlertCircle className="mt-0.5 shrink-0" size={14} />
+                <span className="break-words">{error}</span>
+              </div>
+            )}
+
+            {!messages.length && !isLoading && (
+              <div className="flex min-h-full flex-col items-center justify-center gap-8 py-16 animate-fade-in">
                   <div className="flex flex-col items-center gap-4 text-center">
                     <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-primary/20 bg-primary/5 shadow-md shadow-primary/5">
                       {agent ? (
@@ -223,21 +227,21 @@ export function ChatContainer() {
                 </div>
               )}
 
-              {messages.map((message) => (
-                <ChatMessage
-                  key={message.id}
-                  message={message}
-                  streamingHint={
-                    isLoading && message.role === "assistant" && !message.content
-                      ? streamingHint ?? "thinking"
-                      : null
-                  }
-                />
-              ))}
-            </div>
-          </ScrollArea>
+            {messages.map((message) => (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                streamingHint={
+                  isLoading && message.role === "assistant" && !message.content
+                    ? streamingHint ?? "thinking"
+                    : null
+                }
+              />
+            ))}
+          </div>
+        </div>
 
-          <footer className="safe-bottom shrink-0 border-t border-border/30 bg-background/95 backdrop-blur-md px-3 py-3 sm:px-6 sm:py-4">
+        <footer className="safe-bottom z-20 shrink-0 border-t border-border/30 bg-background/95 backdrop-blur-md px-3 py-3 sm:px-6 sm:py-4">
             <div className="mx-auto w-full max-w-3xl">
               <ChatInput
                 disabled={isLoading || !selectedAgentId || isBootstrapping}
@@ -257,8 +261,7 @@ export function ChatContainer() {
                 )}
               </div>
             </div>
-          </footer>
-        </div>
+        </footer>
       </div>
     </section>
   );

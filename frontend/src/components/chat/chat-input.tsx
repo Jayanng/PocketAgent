@@ -28,21 +28,21 @@ export function ChatInput({ disabled = false, onSend }: ChatInputProps) {
     setValue("");
     requestAnimationFrame(() => {
       if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
+        textareaRef.current.style.height = "";
       }
     });
   };
 
   return (
-    <div className="space-y-1.5 w-full">
-      <div className="flex items-end gap-2.5 rounded-2xl border border-border/50 bg-card/40 backdrop-blur-lg p-2 shadow-lg shadow-black/15 transition-all duration-200 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10">
+    <div className="w-full">
+      <div className="flex items-end gap-2.5 rounded-2xl border border-border/50 bg-card/40 backdrop-blur-lg p-2 shadow-lg shadow-black/15 transition-colors duration-200 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10">
         <textarea
           ref={textareaRef}
           rows={1}
           value={value}
           disabled={disabled}
           placeholder="Ask about any blockchain..."
-          className="max-h-[120px] min-h-[2.75rem] flex-1 resize-none bg-transparent px-2 py-2.5 text-base leading-relaxed outline-none placeholder:text-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-50 text-foreground sm:px-3 sm:text-sm"
+          className="h-11 max-h-[120px] min-h-[2.75rem] flex-1 resize-none bg-transparent px-2 py-2.5 text-base leading-relaxed outline-none placeholder:text-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-50 text-foreground sm:px-3 sm:h-9 sm:text-sm"
           onChange={(event) => {
             setValue(event.target.value);
             requestAnimationFrame(resize);
@@ -65,11 +65,6 @@ export function ChatInput({ disabled = false, onSend }: ChatInputProps) {
         >
           <SendHorizontal size={14} />
         </Button>
-      </div>
-      <div className="hidden items-center justify-between px-2 sm:flex">
-        <span className="font-mono text-[9px] tracking-wider text-muted-foreground/35">
-          Enter to send · Shift+Enter for newline
-        </span>
       </div>
     </div>
   );

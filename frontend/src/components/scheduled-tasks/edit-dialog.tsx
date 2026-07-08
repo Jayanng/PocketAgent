@@ -6,8 +6,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { INTERVAL_PRESETS } from "@/components/scheduled-tasks/constants";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
-import { api, type ScheduledTask } from "@/lib/api";
+import { API_BASE_URL, api, type ScheduledTask } from "@/lib/api";
+import { buildCreateScheduledTaskCurl } from "@/lib/curl-builder";
+import { Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type EditDialogProps = {
@@ -27,11 +30,31 @@ function EditForm({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [prompt, setPrompt] = useState(task.prompt);
   const [intervalSeconds, setIntervalSeconds] = useState(task.interval_seconds);
   const [enabled, setEnabled] = useState(task.enabled === 1);
   const [error, setError] = useState<string | null>(null);
 
+  const copyCurl = async () => {
+    const curl = buildCreateScheduledTaskCurl(
+      {
+        agent_id: task.agent_id,
+        prompt: prompt.trim() || task.prompt,
+        interval_seconds: intervalSeconds,
+      },
+      API_BASE_URL,
+    );
+    try {
+      await navigator.clipboard.writeText(curl);
+      addToast({
+        type: "success",
+        message: "cURL copied — replace $POCKETAGENT_TOKEN with your agent access token",
+      });
+    } catch {
+      addToast({ type: "error", message: "Could not copy to clipboard" });
+    }
+  };
 
   const updateMutation = useMutation({
     mutationFn: () =>
@@ -126,13 +149,19 @@ function EditForm({
           </p>
         )}
 
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Cancel
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+          <Button type="button" variant="ghost" size="sm" onClick={() => void copyCurl()}>
+            <Terminal size={14} />
+            Copy as cURL
           </Button>
-          <Button type="submit" disabled={updateMutation.isPending}>
-            {updateMutation.isPending ? "Saving…" : "Save changes"}
-          </Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={updateMutation.isPending}>
+              {updateMutation.isPending ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
         </div>
       </form>
     </DialogContent>

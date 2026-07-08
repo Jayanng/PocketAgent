@@ -10,6 +10,7 @@ import {
   Info,
   Pencil,
   Plus,
+  Terminal,
   Trash2,
 } from "lucide-react";
 
@@ -17,13 +18,16 @@ import { CreateScheduledTaskDialog } from "@/components/scheduled-tasks/create-d
 import { DeleteScheduledTaskConfirm } from "@/components/scheduled-tasks/delete-confirm";
 import { EditScheduledTaskDialog } from "@/components/scheduled-tasks/edit-dialog";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import {
+  API_BASE_URL,
   api,
   getAgentAccessToken,
   type Agent,
   type ScheduledTask,
   type ScheduledTaskRelayStats,
 } from "@/lib/api";
+import { buildCreateScheduledTaskCurl } from "@/lib/curl-builder";
 import {
   formatIntervalPhrase,
   formatUnixTime,
@@ -102,6 +106,7 @@ function RelayBreakdown({ stats }: { stats: ScheduledTaskRelayStats | undefined 
 
 export default function ScheduledTasksPage() {
   const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [editTask, setEditTask] = useState<ScheduledTask | null>(null);
   const [deleteTask, setDeleteTask] = useState<ScheduledTask | null>(null);
@@ -168,6 +173,19 @@ export default function ScheduledTasksPage() {
       else next.add(id);
       return next;
     });
+  };
+
+  const copyCurl = async (task: ScheduledTask) => {
+    const curl = buildCreateScheduledTaskCurl(task, API_BASE_URL);
+    try {
+      await navigator.clipboard.writeText(curl);
+      addToast({
+        type: "success",
+        message: "cURL copied — replace $POCKETAGENT_TOKEN with your agent access token",
+      });
+    } catch {
+      addToast({ type: "error", message: "Could not copy to clipboard" });
+    }
   };
 
   const toggleExpandRelay = (id: string) => {
@@ -354,6 +372,14 @@ export default function ScheduledTasksPage() {
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Copy as cURL"
+                            onClick={() => void copyCurl(task)}
+                          >
+                            <Terminal size={15} />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"

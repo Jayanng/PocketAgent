@@ -135,25 +135,37 @@ async def _finish_task_run(
         return
     try:
         finished_at = int(time.time())
-        # Buffer: relays may flush slightly after the chat call returns.
-        window_end = max(finished_at, started_at) + 60
-        start_iso = _unix_to_iso(started_at)
+        # Small pad so we don't miss relays logged just outside the chat call.
+        window_start = max(0, started_at - 2)
+        window_end = max(finished_at, started_at) + 5
+        start_iso = _unix_to_iso(window_start)
         end_iso = _unix_to_iso(window_end)
         relay_count = 0
         try:
+            # Prefer agent-scoped rows (populated once pocket_rpc tags
+            # active_agent_id). Fall back to unscoped rows in the same window
+            # for older logs that still have agent_id NULL.
             async with db.execute(
                 """
                 SELECT COUNT(*) AS n
                 FROM relay_logs
-                WHERE agent_id = ?
-                  AND created_at >= ?
+                WHERE created_at >= ?
                   AND created_at <= ?
+                  AND (agent_id = ? OR agent_id IS NULL OR agent_id = '')
                 """,
-                (agent_id, start_iso, end_iso),
+                (start_iso, end_iso, agent_id),
             ) as cursor:
                 row = await cursor.fetchone()
             if row is not None:
                 relay_count = int(row[0] if not hasattr(row, "keys") else row["n"] or 0)
+            logger.info(
+                "scheduled_task_run relays run_id=%s agent_id=%s count=%d window=%s..%s",
+                run_id,
+                agent_id,
+                relay_count,
+                start_iso,
+                end_iso,
+            )
         except Exception:
             logger.warning(
                 "relay_logs count failed run_id=%s agent_id=%s",

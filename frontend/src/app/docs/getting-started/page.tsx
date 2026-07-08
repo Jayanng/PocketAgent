@@ -28,7 +28,7 @@ export default function GettingStartedPage() {
           <DocsCard
             title="Full platform"
             href="/docs/getting-started/local-development"
-            description="Next.js UI + FastAPI backend for agent management and chat."
+            description="Next.js UI + FastAPI backend — agents, chat, Automations, and analytics."
           />
         </DocsCardGrid>
 

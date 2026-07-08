@@ -35,8 +35,8 @@ export default function DocsOverviewPage() {
               <strong>REST API</strong> — Build your own UI against the FastAPI backend with OpenAPI docs.
             </li>
             <li>
-              <strong>Full platform</strong> — Run the Next.js chat UI, agent dashboard, and analytics locally
-              or deploy to production.
+              <strong>Full platform</strong> — Run the Next.js chat UI, Automations, agent dashboard, and
+              analytics locally or deploy to production.
             </li>
           </ul>
         </Callout>
@@ -50,7 +50,12 @@ export default function DocsOverviewPage() {
           <DocsCard
             title="REST API"
             href="/docs/api"
-            description="Agent CRUD, SSE chat streaming, conversations, and analytics endpoints."
+            description="Agent CRUD, SSE chat, Automations, conversations, and analytics."
+          />
+          <DocsCard
+            title="Automations"
+            href="/docs/guides/automations"
+            description="Schedule recurring agent prompts and track Pocket relay usage."
           />
           <DocsCard
             title="MCP Server"

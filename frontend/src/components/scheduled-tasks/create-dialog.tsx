@@ -17,12 +17,17 @@ type CreateDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agents: Agent[];
+  /** Seed values when opening from chat "Schedule this" (or deep link). */
+  initialPrompt?: string;
+  initialAgentId?: string;
 };
 
 export function CreateScheduledTaskDialog({
   open,
   onOpenChange,
   agents,
+  initialPrompt = "",
+  initialAgentId = "",
 }: CreateDialogProps) {
   const queryClient = useQueryClient();
   const agentsWithToken = useMemo(
@@ -30,14 +35,14 @@ export function CreateScheduledTaskDialog({
     [agents],
   );
 
-  const [agentId, setAgentId] = useState("");
-  const [prompt, setPrompt] = useState("");
+  const [agentId, setAgentId] = useState(initialAgentId);
+  const [prompt, setPrompt] = useState(initialPrompt.slice(0, 2000));
   const [intervalSeconds, setIntervalSeconds] = useState(3600);
   const [error, setError] = useState<string | null>(null);
 
   const reset = () => {
-    setAgentId("");
-    setPrompt("");
+    setAgentId(initialAgentId);
+    setPrompt(initialPrompt.slice(0, 2000));
     setIntervalSeconds(3600);
     setError(null);
   };
@@ -65,7 +70,7 @@ export function CreateScheduledTaskDialog({
       close();
     },
     onError: (err: Error) => {
-      setError(err.message || "Failed to create scheduled task");
+      setError(err.message || "Failed to create automation");
     },
   });
 
@@ -103,7 +108,7 @@ export function CreateScheduledTaskDialog({
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
       <DialogContent className="max-w-lg bg-card">
         <DialogHeader
-          title="New Scheduled Task"
+          title="New Automation"
           description="Your agent will run this prompt on a recurring interval via Pocket Network."
           onClose={close}
         />

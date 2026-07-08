@@ -164,6 +164,27 @@ class AIAgentService:
         5. Save messages to DB
         6. Return response
         """
+        # Tag Pocket RPC relays with this agent so scheduled-task counters
+        # (and analytics) can attribute usage. Cleared in finally below.
+        prev_agent_id = getattr(self.rpc_client, "active_agent_id", None)
+        self.rpc_client.active_agent_id = agent_id
+        try:
+            return await self._chat_inner(
+                message=message,
+                agent_id=agent_id,
+                conversation_id=conversation_id,
+                connected_wallet_address=connected_wallet_address,
+            )
+        finally:
+            self.rpc_client.active_agent_id = prev_agent_id
+
+    async def _chat_inner(
+        self,
+        message: str,
+        agent_id: str,
+        conversation_id: str | None = None,
+        connected_wallet_address: str | None = None,
+    ) -> dict[str, Any]:
         async with self._connect_db() as db:
             self._active_db = db
             agent = await get_agent(db, agent_id)
@@ -320,6 +341,10 @@ class AIAgentService:
         # operators grep client-side failures separately from fast-fail paths
         # like agent_not_found or bad_tool_args.
         early_return_reason: str = "early_return"
+
+        # Tag Pocket RPC relays with this agent for the duration of the stream.
+        prev_agent_id = getattr(self.rpc_client, "active_agent_id", None)
+        self.rpc_client.active_agent_id = agent_id
 
         def emit_client_error(phase: str, exc: BaseException) -> dict[str, Any]:
             """Build the SSE payload we emit when an OpenAI stream fails.
@@ -611,6 +636,7 @@ class AIAgentService:
             # Client disconnected mid-stream; let uvicorn close the response.
             raise
         finally:
+            self.rpc_client.active_agent_id = prev_agent_id
             # Fallback log so `chat_timing` always lands in fly logs, even
             # when an early-return path (agent_not_found / bad_tool_args /
             # no_api_key / etc.) skips the success-path emit. We log at

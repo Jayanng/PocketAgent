@@ -20,7 +20,7 @@ const navItems = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
   { href: "/agents", label: "Agents", icon: Bot },
-  { href: "/scheduled-tasks", label: "Scheduled Tasks", icon: CalendarClock },
+  { href: "/scheduled-tasks", label: "Automations", icon: CalendarClock },
 ] as const;
 
 type AppShellProps = {

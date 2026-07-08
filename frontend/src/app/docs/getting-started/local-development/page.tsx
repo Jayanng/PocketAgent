@@ -60,6 +60,10 @@ cp .env.example .env.local`}</CodeBlock>
             Web UI — <code className="font-mono text-[12px]">http://localhost:3000</code>
           </li>
           <li>
+            Automations —{" "}
+            <code className="font-mono text-[12px]">http://localhost:3000/scheduled-tasks</code>
+          </li>
+          <li>
             REST API — <code className="font-mono text-[12px]">http://127.0.0.1:8000</code>
           </li>
           <li>

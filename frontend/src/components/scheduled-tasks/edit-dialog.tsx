@@ -85,7 +85,7 @@ function EditForm({
   return (
     <DialogContent className="max-w-lg bg-card">
       <DialogHeader
-        title="Edit Scheduled Task"
+        title="Edit Automation"
         description={agentName ? `Agent: ${agentName}` : undefined}
         onClose={onClose}
       />

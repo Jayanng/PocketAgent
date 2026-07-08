@@ -126,6 +126,9 @@ class PocketRPCClient:
         self.price_feed = PriceFeedService()
         self.formatter = HumanReadableFormatter(self.price_feed)
         self.relay_tracker = RelayTrackerService()
+        # Set by AIAgentService (or other callers) for the duration of a chat turn
+        # so relay_logs.agent_id is populated. None = unscoped / legacy callers.
+        self.active_agent_id: str | None = None
         self.timeout = 30.0
         self.rate_limit_per_second = 30
         self._rate_windows: dict[str, deque[float]] = {chain: deque() for chain in self.rpc_urls}
@@ -338,6 +341,7 @@ class PocketRPCClient:
             request_payload=request_payload,
             response_status=response_status,
             latency_ms=latency_ms,
+            agent_id=self.active_agent_id,
         )
 
     async def _call_evm(self, chain: str, method: str, params: list[Any] | None = None) -> Any:

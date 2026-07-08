@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -105,19 +106,50 @@ function RelayBreakdown({ stats }: { stats: ScheduledTaskRelayStats | undefined 
 }
 
 export default function ScheduledTasksPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
+          Loading automations…
+        </div>
+      }
+    >
+      <ScheduledTasksPageInner />
+    </Suspense>
+  );
+}
+
+function ScheduledTasksPageInner() {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { addToast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [editTask, setEditTask] = useState<ScheduledTask | null>(null);
   const [deleteTask, setDeleteTask] = useState<ScheduledTask | null>(null);
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
   const [expandedRelays, setExpandedRelays] = useState<Set<string>>(new Set());
+  // Chat "Schedule this" deep-link: ?prefill=...&agent_id=...
+  const [prefillPrompt, setPrefillPrompt] = useState("");
+  const [prefillAgentId, setPrefillAgentId] = useState("");
+  const [createSeed, setCreateSeed] = useState(0);
 
   const agentsQuery = useQuery({
     queryKey: ["agents", "list"],
     queryFn: () => api.agents.list(),
     staleTime: 30_000,
   });
+
+  useEffect(() => {
+    const prefill = searchParams.get("prefill");
+    if (!prefill) return;
+    setPrefillPrompt(prefill.slice(0, 2000));
+    setPrefillAgentId(searchParams.get("agent_id") ?? "");
+    setCreateSeed((n) => n + 1);
+    setCreateOpen(true);
+    // Drop query so refresh doesn't re-open; keep path as /scheduled-tasks.
+    router.replace("/scheduled-tasks", { scroll: false });
+  }, [searchParams, router]);
 
   const agents = useMemo(() => agentsQuery.data ?? [], [agentsQuery.data]);
   const agentNameById = useMemo(() => {
@@ -206,7 +238,7 @@ export default function ScheduledTasksPage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between md:items-center">
         <div className="space-y-2">
           <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-            Scheduled Tasks
+            Automations
           </h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
             Recurring autonomous actions your agents run on their own via Pocket
@@ -215,20 +247,20 @@ export default function ScheduledTasksPage() {
         </div>
         <Button onClick={() => setCreateOpen(true)} className="w-full sm:w-auto">
           <Plus size={16} />
-          New Scheduled Task
+          New Automation
         </Button>
       </header>
 
       {error && (
         <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           <AlertCircle className="mt-0.5 shrink-0" size={16} />
-          <span>{(error as Error).message || "Failed to load scheduled tasks"}</span>
+          <span>{(error as Error).message || "Failed to load automations"}</span>
         </div>
       )}
 
       {isLoading && (
         <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
-          Loading scheduled tasks…
+          Loading automations…
         </div>
       )}
 
@@ -237,16 +269,16 @@ export default function ScheduledTasksPage() {
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
             <CalendarClock size={24} />
           </div>
-          <p className="text-base font-semibold">No scheduled tasks yet</p>
+          <p className="text-base font-semibold">No automations yet</p>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            Scheduled tasks let an agent run a prompt on a timer — portfolio
+            Automations let an agent run a prompt on a timer — portfolio
             checks, gas snapshots, balance monitors — without you opening chat.
             Each run uses Pocket Network relays under your agent&apos;s
             capabilities and spending caps.
           </p>
           <Button className="mt-6" onClick={() => setCreateOpen(true)}>
             <Plus size={16} />
-            Create your first scheduled task
+            Create your first automation
           </Button>
         </div>
       )}
@@ -415,9 +447,18 @@ export default function ScheduledTasksPage() {
       )}
 
       <CreateScheduledTaskDialog
+        key={`create-${createSeed}`}
         open={createOpen}
-        onOpenChange={setCreateOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) {
+            setPrefillPrompt("");
+            setPrefillAgentId("");
+          }
+        }}
         agents={agents}
+        initialPrompt={prefillPrompt}
+        initialAgentId={prefillAgentId}
       />
       <EditScheduledTaskDialog
         open={Boolean(editTask)}

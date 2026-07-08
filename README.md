@@ -18,35 +18,35 @@
 
 ## What is PocketAgent?
 
-PocketAgent is a full-stack platform where **AI agents orchestrate blockchain operations across 52 chains**. You create an agent, give it spending caps and capabilities, fund its wallet, and then talk to it. Ask it to compare gas fees across networks, analyze your portfolio, simulate a transaction, or send tokens — the agent picks the right tools, reads the chain state, and executes.
+PocketAgent is a full-stack platform where **AI agents orchestrate blockchain operations across 52 chains**. You create an agent, give it spending caps and capabilities, fund its wallet, and then talk to it — or schedule **Automations** that re-run the same prompts on a timer without opening chat. Ask it to compare gas fees across networks, analyze your portfolio, simulate a transaction, or send tokens — the agent picks the right tools, reads the chain state, and executes.
 
 Every request flows through Pocket Network's decentralized Shannon gateway. That means no Infura, no Alchemy, no centralized API keys. Just open, permissionless RPC.
 
-The platform ships with a **polished chat UI**, a **REST API** with auto-generated OpenAPI docs, and a standalone **MCP server** that drops directly into Claude Desktop, Cursor, or Codex.
+The platform ships with a **polished chat UI**, **Automations** (recurring agent jobs), a **REST API** with auto-generated OpenAPI docs, and a standalone **MCP server** that drops directly into Claude Desktop, Cursor, or Codex.
 
 ---
 
 ## How It Works
 
 ```
-  CREATE AGENT           FUND WALLET            CHAT                   EXECUTE               MONITOR
- ┌────────────────┐    ┌────────────────┐    ┌────────────────┐    ┌────────────────┐    ┌────────────────┐
- │  Name it        │    │  Deposit ETH,  │    │  "Compare gas  │    │  Cap check     │    │  Relay stats   │
- │  Pick tool caps │───▶│  SOL, USDC,    │───▶│  on Arbitrum   │───▶│  Balance check │───▶│  Chain health  │
- │  Set spend caps │    │  SUI, OSMO..." │    │  vs Base"      │    │  Broadcast     │    │  Cost tracking │
- │  Encrypted keys │    │                │    │                │    │  SSE confirm   │    │  Portfolio     │
- └────────────────┘    └────────────────┘    └────────────────┘    └────────────────┘    └────────────────┘
+  CREATE AGENT      FUND WALLET       CHAT / AUTOMATE      EXECUTE            MONITOR
+ ┌────────────┐    ┌────────────┐    ┌──────────────┐    ┌────────────┐    ┌────────────┐
+ │ Name it     │    │ Deposit    │    │ Chat now, or │    │ Cap check  │    │ Relays     │
+ │ Tool caps   │───▶│ ETH, SOL,  │───▶│ schedule a   │───▶│ Balance    │───▶│ Health     │
+ │ Spend caps  │    │ USDC, …    │    │ recurring    │    │ Broadcast  │    │ Costs      │
+ │ Enc. keys   │    │            │    │ prompt       │    │ SSE tx     │    │ Portfolio  │
+ └────────────┘    └────────────┘    └──────────────┘    └────────────┘    └────────────┘
 ```
 
 **Step 1 — Create** &nbsp; Name your agent, pick which blockchain capabilities to enable, and set per-chain spending caps. The platform generates encrypted multi-chain wallet keys (EVM, Solana, SUI, NEAR, Cosmos, TRON) and issues protected access tokens.
 
 **Step 2 — Fund** &nbsp; Deposit native tokens or ERC-20 / SPL / TRC-20 / CW20 / NEP-141 / SUI tokens to the agent's addresses. The dashboard shows live balances across all chains.
 
-**Step 3 — Chat** &nbsp; Ask anything in natural language. The LLM autonomously selects and chains the right tools from the 51-tool registry — reading balances, fetching blocks, comparing gas, or preparing transactions. No manual chain selection, no context switching.
+**Step 3 — Chat or Automate** &nbsp; Ask anything in natural language, or open **Automations** and schedule a prompt (gas checks, portfolio summaries, balance monitors) on an interval from 1 minute to 7 days. The LLM selects tools from the 51-tool registry — no manual chain selection.
 
-**Step 4 — Execute** &nbsp; Every write operation is gated by spending cap enforcement and checked against the agent's current balance before broadcast. Real-time SSE confirmation streams tx status back to the chat.
+**Step 4 — Execute** &nbsp; Every write operation is gated by spending cap enforcement and checked against the agent's current balance before broadcast. Real-time SSE confirmation streams tx status back to the chat. Scheduled runs log success/error and approximate Pocket relay usage per run.
 
-**Step 5 — Monitor** &nbsp; The analytics dashboard tracks relay volume, chain health probes, latency comparisons, and cost breakdowns across all your agents.
+**Step 5 — Monitor** &nbsp; The analytics dashboard tracks relay volume, chain health probes, latency comparisons, and cost breakdowns. Automations show last result, last run time, and relay counts for the last 10 runs.
 
 ---
 
@@ -60,6 +60,7 @@ The platform ships with a **polished chat UI**, a **REST API** with auto-generat
 | **Agent lifecycle management** | Full CRUD via REST API and web UI: create, configure capabilities, set spending caps, update, soft-delete |
 | **Per-agent access tokens** | JWT-based authentication with reissue, rotate, import, and export lifecycle. BroadcastChannel syncs tokens across browser tabs in real time |
 | **Encrypted wallet storage** | AES-256 encryption per agent. Private keys never leave the backend in plaintext |
+| **Automations** | Recurring scheduled prompts per agent — interval jobs (1m–7d), enable/disable, last result, and Pocket relay counts for the last 10 runs |
 
 ### Blockchain Operations
 
@@ -85,9 +86,10 @@ The platform ships with a **polished chat UI**, a **REST API** with auto-generat
 
 | Feature | Description |
 | :--- | :--- |
-| **REST API** | 12+ endpoints with auto-generated Swagger UI at `/docs` and ReDoc at `/redoc` |
+| **REST API** | Agents, chat, analytics, and automations — auto-generated Swagger UI at `/docs` and ReDoc at `/redoc` |
 | **MCP server** | Standalone stdio server — 51 tools, 5 resources, 4 prompts. Drop into Claude Desktop, Cursor, or Codex |
 | **Analytics dashboard** | Relay stats, chain health probes, cost tracking, and portfolio view with agent-scope filtering |
+| **Automations UI** | Web page at `/scheduled-tasks` — templates, toggles, expand relay breakdown, copy-as-cURL |
 | **Dark/light theme** | System preference detection with manual toggle |
 | **WalletConnect** | RainbowKit + Wagmi for external wallet connections |
 
@@ -113,26 +115,21 @@ The platform ships with a **polished chat UI**, a **REST API** with auto-generat
  │                      │      │  /api/agents   (CRUD + tokens) │
  │  • Landing Page      │      │  /api/chat     (SSE stream)    │
  │  • Agent Management  │      │  /api/analytics                │
- │  • Chat Interface    │      │  /health                       │
+ │  • Chat Interface    │      │  /api/scheduled-tasks          │
+ │  • Automations       │      │  /health                       │
  │  • Analytics         │      │                                │
  │  • Token UX          │      │  services/                     │
  │  • Wallet Connect    │      │    ai_agent.py      (LLM orch) │
  │                      │      │    pocket_rpc.py    (gateway)  │
- │  RainbowKit          │      │    chain_router.py  (dispatch) │
- │  Zustand · TanStack  │      │    chain_registry.py(52 chains)│
- │  shadcn/ui · Motion  │      │    wallets.py       (multi-key)│
- └──────────────────────┘      │    encryption.py    (AES-256)  │
+ │  RainbowKit          │      │    scheduler.py     (jobs)     │
+ │  Zustand · TanStack  │      │    chain_router.py  (dispatch) │
+ │  shadcn/ui · Motion  │      │    chain_registry.py(52 chains)│
+ └──────────────────────┘      │    wallets.py · encryption.py  │
                                │    confirmation.py  (SSE pub)  │
-                               │    price_feed.py    (CoinGecko)│
-                               │    relay_tracker.py            │
+                               │    price_feed.py · relay_tracker│
                                │    */transfer.py    (6 protos) │
                                │                                │
                                │  tools/ (51 tools, 10 modules) │
-                               │    balance · transaction       │
-                               │    token · token_transfer      │
-                               │    chain · compare · analytics │
-                               │    simulation · wallet · pokt  │
-                               │                                │
                                │  database.py (SQLite/aiosqlite)│
                                └────────────────┬───────────────┘
                                                 │ HTTP
@@ -277,11 +274,26 @@ Interactive docs at `/docs` (Swagger) and `/redoc` when the server is running.
 
 | Method | Route | Auth | Description |
 | :--- | :--- | :---: | :--- |
-| `POST` | `/api/chat` | Token | Send message to agent (SSE stream with tool-use events) |
+| `POST` | `/api/chat` | Token | Send message to agent (JSON or use `/api/chat/stream` for SSE) |
 | `GET` | `/api/analytics/relay-stats` | — | Relay traffic statistics |
 | `GET` | `/api/analytics/cost-breakdown` | — | Cost breakdown by chain/agent |
 
+### Automations (scheduled tasks)
+
+Recurring prompts run by a background scheduler (30s poll). Each run invokes the same LLM + tool path as chat. Relay counts attribute Pocket RPC usage per run when tools hit the chain.
+
+| Method | Route | Auth | Description |
+| :--- | :--- | :---: | :--- |
+| `POST` | `/api/scheduled-tasks` | Token | Create automation (`agent_id`, `prompt`, `interval_seconds` 60–604800) |
+| `GET` | `/api/scheduled-tasks?agent_id=` | Token | List automations for an agent (`agent_id` required) |
+| `GET` | `/api/scheduled-tasks/{id}` | Token | Get one automation |
+| `PATCH` | `/api/scheduled-tasks/{id}` | Token | Update prompt, interval, and/or `enabled` |
+| `DELETE` | `/api/scheduled-tasks/{id}` | Token | Delete automation (204) |
+| `GET` | `/api/scheduled-tasks/{id}/relay-stats` | Token | Last 10 runs + approximate relay totals |
+
 Agent-scoped endpoints require the `X-Agent-Access-Token` header.
+
+**UI:** open **Automations** in the app nav (`/scheduled-tasks`) — templates, enable toggle, last result, relay breakdown, and copy-as-cURL.
 
 ---
 

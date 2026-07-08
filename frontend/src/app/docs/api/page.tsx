@@ -34,6 +34,11 @@ export default function ApiOverviewPage() {
         <DocsCardGrid>
           <DocsCard title="Agents" href="/docs/api/agents" description="CRUD, balances, funding, token reissue." />
           <DocsCard title="Chat" href="/docs/api/chat" description="Chat, SSE stream, conversations." />
+          <DocsCard
+            title="Automations"
+            href="/docs/api/automations"
+            description="Scheduled tasks, enable/disable, per-run relay stats."
+          />
           <DocsCard title="Analytics" href="/docs/api/analytics" description="Relay stats, chain health, portfolio." />
         </DocsCardGrid>
 

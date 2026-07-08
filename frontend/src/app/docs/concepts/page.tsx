@@ -17,8 +17,8 @@ export default function ConceptsPage() {
         <DocsH2 id="lifecycle">Agent lifecycle</DocsH2>
         <DocsP>
           Create an agent with chains and capabilities → fund its multi-chain wallets → chat via UI or
-          API → the agent reads chain state and optionally broadcasts writes → monitor relay stats and
-          costs on the dashboard.
+          API, or schedule Automations for recurring prompts → the agent reads chain state and optionally
+          broadcasts writes → monitor relay stats, automation run history, and costs on the dashboard.
         </DocsP>
 
         <DocsCardGrid>

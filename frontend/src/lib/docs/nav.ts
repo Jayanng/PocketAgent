@@ -40,6 +40,11 @@ export const DOCS_NAV: DocsNavSection[] = [
       { title: "Create an Agent", href: "/docs/guides/create-agent", description: "Configure chains and capabilities" },
       { title: "Fund an Agent", href: "/docs/guides/fund-agent", description: "Deposit native and token assets" },
       { title: "Chat & Streaming", href: "/docs/guides/chat", description: "REST chat and SSE events" },
+      {
+        title: "Automations",
+        href: "/docs/guides/automations",
+        description: "Schedule recurring agent prompts and track Pocket relays",
+      },
     ],
   },
   {
@@ -48,6 +53,7 @@ export const DOCS_NAV: DocsNavSection[] = [
       { title: "API Overview", href: "/docs/api", description: "Base URL, auth, and OpenAPI" },
       { title: "Agents", href: "/docs/api/agents", description: "CRUD, balances, funding, tokens" },
       { title: "Chat", href: "/docs/api/chat", description: "Chat, conversations, SSE stream" },
+      { title: "Automations", href: "/docs/api/automations", description: "Scheduled tasks and relay stats" },
       { title: "Analytics", href: "/docs/api/analytics", description: "Relay stats, health, portfolio" },
     ],
   },

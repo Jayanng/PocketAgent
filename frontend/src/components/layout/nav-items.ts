@@ -11,6 +11,6 @@ export const SITE_NAV_ITEMS: SiteNavItem[] = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
   { href: "/agents", label: "Agents", icon: Bot },
-  { href: "/scheduled-tasks", label: "Scheduled Tasks", icon: CalendarClock },
+  { href: "/scheduled-tasks", label: "Automations", icon: CalendarClock },
   { href: "/docs", label: "Docs", icon: BookOpen },
 ];

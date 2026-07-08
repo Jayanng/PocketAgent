@@ -1,16 +1,20 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { SendHorizontal } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CalendarClock, SendHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
 type ChatInputProps = {
   disabled?: boolean;
+  /** Optional agent for pre-selecting in the Automations create dialog. */
+  agentId?: string | null;
   onSend: (message: string) => void;
 };
 
-export function ChatInput({ disabled = false, onSend }: ChatInputProps) {
+export function ChatInput({ disabled = false, agentId = null, onSend }: ChatInputProps) {
+  const router = useRouter();
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -31,6 +35,15 @@ export function ChatInput({ disabled = false, onSend }: ChatInputProps) {
         textareaRef.current.style.height = "";
       }
     });
+  };
+
+  const scheduleThis = () => {
+    const message = value.trim();
+    if (!message || disabled) return;
+    const params = new URLSearchParams({ prefill: message.slice(0, 2000) });
+    if (agentId) params.set("agent_id", agentId);
+    // /automations aliases to the Automations page (scheduled-tasks).
+    router.push(`/automations?${params.toString()}`);
   };
 
   return (
@@ -54,6 +67,19 @@ export function ChatInput({ disabled = false, onSend }: ChatInputProps) {
             }
           }}
         />
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={disabled || !value.trim()}
+          onClick={scheduleThis}
+          className="mb-0.5 h-9 shrink-0 gap-1 rounded-xl px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground sm:h-8"
+          aria-label="Schedule this as an automation"
+          title="Open Automations with this prompt pre-filled"
+        >
+          <CalendarClock size={13} />
+          <span className="hidden sm:inline">Schedule this</span>
+        </Button>
         <Button
           type="button"
           size="icon"

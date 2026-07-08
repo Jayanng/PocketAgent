@@ -19,12 +19,12 @@ import {
   Globe,
   ArrowRight,
   Wallet,
-  MessageSquare,
   Send,
   BarChart3,
   Terminal,
   Sparkles,
   CheckCircle2,
+  CalendarClock,
 } from "lucide-react";
 import { ProtocolFamiliesBanner } from "@/components/brand/protocol-families-banner";
 import { SiteHeader } from "@/components/layout/site-header";
@@ -93,6 +93,13 @@ const FEATURES = [
       "EVM, Solana, Sui, Near, Tron, Cosmos — one unified interface across every major protocol family. Live RPC endpoints for all supported chains.",
     icon: Globe,
     gradient: "var(--gradient-blue-deep)",
+  },
+  {
+    title: "Automations",
+    description:
+      "Schedule recurring agent prompts — gas checks, portfolio reports, balance monitors — on a timer. Track last runs and Pocket relay usage without babysitting chat.",
+    icon: CalendarClock,
+    gradient: "var(--gradient-blue)",
   },
 ];
 
@@ -250,9 +257,10 @@ export default function Home() {
             className="landing-body mt-6 max-w-lg text-[15px] leading-relaxed md:text-base"
           >
             Deploy autonomous agents that read and compare 52 blockchains
-            through a single decentralized interface, with guarded native
-            transaction signing across EVM, Solana, SUI, NEAR, Cosmos, and
-            TRON. No gatekeepers. No central RPC provider.
+            through a single decentralized interface — chat in natural language
+            or schedule Automations that re-run prompts on a timer. Guarded
+            native signing across EVM, Solana, SUI, NEAR, Cosmos, and TRON. No
+            gatekeepers. No central RPC provider.
           </motion.p>
 
           <motion.div
@@ -289,7 +297,7 @@ export default function Home() {
         ref={featuresRef}
         className="relative z-10 mx-auto max-w-7xl px-4 pb-20 pt-12 sm:px-6 sm:pb-32 sm:pt-16 md:pt-24"
       >
-        <div className="grid gap-5 md:grid-cols-2">
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((feature, i) => {
             const Icon = feature.icon;
             const delay = i * 0.12;
@@ -379,8 +387,9 @@ export default function Home() {
             From <span className="landing-section-accent">zero</span> to on-chain in minutes
           </h2>
           <p className="landing-section-desc mt-4 text-[15px]">
-            Create an agent, fund its wallet, then talk to it — the agent handles
-            chain selection, tool execution, and safety checks automatically.
+            Create an agent, fund its wallet, then chat — or schedule Automations
+            that re-run prompts on a timer. The agent handles chain selection, tools,
+            and safety checks automatically.
           </p>
         </motion.div>
 
@@ -400,9 +409,9 @@ export default function Home() {
             },
             {
               step: "03",
-              icon: MessageSquare,
-              title: "Chat",
-              desc: "Ask anything naturally. The LLM picks the right tools from 51 options across 52 chains.",
+              icon: CalendarClock,
+              title: "Chat or Automate",
+              desc: "Talk live, or schedule recurring prompts — gas checks, portfolios, balance monitors — with relay tracking.",
             },
             {
               step: "04",
@@ -414,7 +423,7 @@ export default function Home() {
               step: "05",
               icon: BarChart3,
               title: "Monitor",
-              desc: "Track relay volume, chain health, latency, and costs across all agents in one dashboard.",
+              desc: "Track relay volume, chain health, latency, costs, and automation run history in one place.",
             },
           ].map((item, i) => (
             <motion.div
@@ -497,13 +506,15 @@ export default function Home() {
             </div>
             <h3 className="landing-card-title mb-3 text-[17px] font-semibold">Interactive API docs</h3>
             <p className="landing-card-desc mb-5 text-[13px] leading-relaxed">
-              Full OpenAPI spec with Swagger UI and ReDoc. Every agent CRUD endpoint,
-              SSE chat stream, and analytics route auto-documented at <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">/docs</code>.
+              Full OpenAPI spec with Swagger UI and ReDoc. Agent CRUD, SSE chat,
+              Automations, and analytics — auto-documented at{" "}
+              <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">/docs</code>.
             </p>
             <div className="flex flex-wrap gap-3">
               {[
                 { label: "Create agent", method: "POST" },
                 { label: "Chat (SSE)", method: "POST" },
+                { label: "Automations", method: "POST" },
                 { label: "Balances", method: "GET" },
                 { label: "Analytics", method: "GET" },
               ].map((ep) => (

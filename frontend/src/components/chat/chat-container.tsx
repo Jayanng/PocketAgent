@@ -245,6 +245,7 @@ export function ChatContainer() {
             <div className="mx-auto w-full max-w-3xl">
               <ChatInput
                 disabled={isLoading || !selectedAgentId || isBootstrapping}
+                agentId={selectedAgentId}
                 onSend={(message) => void sendMessage(message)}
               />
               <div className="mt-1 flex min-h-5 items-center justify-between gap-3 px-2 text-[10px] text-muted-foreground/45">

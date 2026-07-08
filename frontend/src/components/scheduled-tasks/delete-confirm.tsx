@@ -37,13 +37,13 @@ export function DeleteScheduledTaskConfirm({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md bg-card">
         <DialogHeader
-          title="Delete scheduled task?"
+          title="Delete automation?"
           description="This cannot be undone."
           onClose={() => onOpenChange(false)}
         />
         <div className="space-y-4 p-4">
           <p className="text-sm text-muted-foreground">
-            Delete this scheduled task? This cannot be undone.
+            Delete this automation? This cannot be undone.
           </p>
           <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm" title={task.prompt}>
             {truncateText(task.prompt, 120)}

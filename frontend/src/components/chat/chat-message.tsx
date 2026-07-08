@@ -5,7 +5,7 @@ import { Bot, User } from "lucide-react";
 
 import { Avatar } from "@/components/ui/avatar";
 import type { ChainCall, ChatMessage as APIChatMessage } from "@/lib/api";
-import { CHAIN_CONFIGS } from "@/lib/constants";
+import { CHAIN_CONFIGS, chainBadgeSymbol } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 type ChatMessageProps = {
@@ -249,7 +249,7 @@ export function ChatMessage({
                   className="inline-flex items-center rounded border border-border/40 bg-muted/20 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/80 shadow-sm"
                   title={config?.name ?? chain}
                 >
-                  {config?.symbol ?? chain.slice(0, 4).toUpperCase()}
+                  {chainBadgeSymbol(chain)}
                   <span className="ml-1 shrink-0 rounded bg-green-500/10 px-1 py-0 text-[7px] font-semibold tracking-widest text-green-500/80">
                     MAINNET
                   </span>

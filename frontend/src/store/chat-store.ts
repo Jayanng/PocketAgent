@@ -8,6 +8,7 @@ import {
   type ChainCall,
   type ChatMessage,
 } from "@/lib/api";
+import { inferChains } from "@/lib/infer-chains";
 import { emitApiError } from "@/lib/toast-events";
 import { useAgentStore } from "@/store/agent-store";
 

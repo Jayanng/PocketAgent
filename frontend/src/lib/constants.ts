@@ -219,6 +219,35 @@ export const CHAIN_CONFIGS: Record<ChainKey, ChainConfig> = {
 };
 
 /**
+ * Short chain-identifying label for badges and pills. Distinct from `symbol`,
+ * which remains the native gas token (e.g. Arbitrum gas is ETH, badge is ARB).
+ */
+export const CHAIN_BADGE_SYMBOLS: Partial<Record<ChainKey, string>> = {
+  arbitrum: "ARB",
+  optimism: "OP",
+  base: "BASE",
+  blast: "BLAST",
+  linea: "LINEA",
+  scroll: "SCRL",
+  "zksync-era": "ZK",
+  taiko: "TAIKO",
+  unichain: "UNI",
+  "zklink-nova": "NOVA",
+  "polygon-zkevm": "ZKEVM",
+  opbnb: "OPBNB",
+};
+
+/** Badge label for a chain key — falls back to native `symbol`, then key prefix. */
+export function chainBadgeSymbol(chain: string): string {
+  const key = chain.toLowerCase().replace(/\s+/g, "-") as ChainKey;
+  const config = CHAIN_CONFIGS[key];
+  if (config) {
+    return CHAIN_BADGE_SYMBOLS[key] ?? config.symbol;
+  }
+  return chain.slice(0, 4).toUpperCase();
+}
+
+/**
  * Reverse lookup: chain ID (numeric for EVM, string for non-EVM) →
  * human-readable chain name. Covers all 52 chains in CHAIN_CONFIGS.
  *

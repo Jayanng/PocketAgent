@@ -6,7 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "pocketagent"
 version = "1.0.0"
 description = "AI agents that reason about and interact with 52 blockchains — via Model Context Protocol"
-license = { text = "MIT" }
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "PocketAgent Contributors" },
 ]
@@ -28,7 +30,6 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -68,7 +69,7 @@ test = [
 ]
 
 [project.scripts]
-pocketagent-mcp = "pocketagent.mcp_server.server:main"
+pocketagent-mcp = "pocketagent.mcp_server.server:cli"
 
 [project.urls]
 Homepage = "https://github.com/Jayanng/PocketAgent"

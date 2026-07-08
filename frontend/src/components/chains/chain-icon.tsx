@@ -1,6 +1,6 @@
 "use client";
 
-import { CHAIN_CONFIGS } from "@/lib/constants";
+import { CHAIN_CONFIGS, chainBadgeSymbol } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 const protocolStyles: Record<string, string> = {
@@ -19,7 +19,7 @@ type ChainIconProps = {
 
 export function ChainIcon({ chain, className }: ChainIconProps) {
   const config = CHAIN_CONFIGS[chain as keyof typeof CHAIN_CONFIGS];
-  const label = config?.symbol ?? chain.slice(0, 4).toUpperCase();
+  const label = chainBadgeSymbol(chain);
   const protocol = config?.protocol ?? "evm";
 
   return (

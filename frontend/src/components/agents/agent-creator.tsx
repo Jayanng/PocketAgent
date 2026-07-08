@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { PROTOCOL_LABEL } from "@/lib/api";
 
 const WRITE_PROTOCOL_ORDER = ["evm", "solana", "tron", "sui"] as const;
-import { CHAIN_CONFIGS, type ChainKey } from "@/lib/constants";
+import { CHAIN_CONFIGS, chainBadgeSymbol, type ChainKey } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/store/agent-store";
 
@@ -41,7 +41,9 @@ export function AgentCreator() {
     const query = chainSearch.trim().toLowerCase();
     if (!query) return chainOptions;
     return chainOptions.filter((chain) => {
-      const haystack = [chain.key, chain.name, chain.symbol, chain.protocol].join(" ").toLowerCase();
+      const haystack = [chain.key, chain.name, chain.symbol, chainBadgeSymbol(chain.key), chain.protocol]
+        .join(" ")
+        .toLowerCase();
       return haystack.includes(query);
     });
   }, [chainOptions, chainSearch]);

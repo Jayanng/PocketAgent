@@ -30,6 +30,7 @@ import { Logo } from "@/components/brand/logo";
 import { ProtocolFamiliesBanner } from "@/components/brand/protocol-families-banner";
 import { SiteHeader } from "@/components/layout/site-header";
 import { useLandingTheme } from "@/hooks/use-landing-theme";
+import { TEST_STATS } from "@/lib/test-stats";
 import { cn } from "@/lib/utils";
 
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
@@ -76,7 +77,7 @@ const STATS = [
   { value: "52", label: "Chains Supported", suffix: "" },
   { value: "6", label: "Protocol Families", suffix: "" },
   { value: "51", label: "MCP Tools", suffix: "" },
-  { value: "246", label: "Automated Tests", suffix: "" },
+  { value: String(TEST_STATS.total), label: "Automated Tests", suffix: "" },
 ];
 
 const FEATURES = [
@@ -581,7 +582,7 @@ export default function Home() {
             <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-center text-xs">
               <span className="inline-flex items-center gap-1.5">
                 <CheckCircle2 size={13} className="text-emerald-400" />
-                246 automated tests
+                {TEST_STATS.total} automated tests
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <CheckCircle2 size={13} className="text-emerald-400" />

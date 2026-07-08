@@ -2,14 +2,8 @@
 
 import { Activity } from "lucide-react";
 
-import { CHAIN_CONFIGS } from "@/lib/constants";
+import { CHAIN_CONFIGS, chainBadgeSymbol } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-
-const labelForChain = (chain: string) => {
-  const key = chain.toLowerCase().replace(/\s+/g, "-") as keyof typeof CHAIN_CONFIGS;
-  const config = CHAIN_CONFIGS[key];
-  return config?.symbol ?? chain.slice(0, 4).toUpperCase();
-};
 
 type ChainIndicatorProps = {
   chains: string[];
@@ -46,7 +40,7 @@ export function ChainIndicator({ chains, isLoading = false, compact = false }: C
           )}
           title={CHAIN_CONFIGS[chain as keyof typeof CHAIN_CONFIGS]?.name ?? chain}
         >
-          {labelForChain(chain)}
+          {chainBadgeSymbol(chain)}
           <span className="ml-1 shrink-0 rounded bg-green-500/10 px-1 py-0 text-[7px] font-semibold tracking-widest text-green-500/80">
             MAINNET
           </span>

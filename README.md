@@ -9,7 +9,7 @@
   <img alt="License" src="https://img.shields.io/badge/license-MIT-blue">
   <img alt="Python" src="https://img.shields.io/badge/python-3.11+-blue?logo=python">
   <img alt="TypeScript" src="https://img.shields.io/badge/typescript-strict-blue?logo=typescript">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-246%20passing-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-252%20passing-brightgreen">
   <img alt="Chains" src="https://img.shields.io/badge/chains-52-orange">
   <img alt="MCP Tools" src="https://img.shields.io/badge/mcp%20tools-51-purple">
 </p>
@@ -157,7 +157,7 @@ The platform ships with a **polished chat UI**, a **REST API** with auto-generat
 | **Auth / Crypto** | AES-256 wallet encryption (cryptography), JWT agent access tokens |
 | **Blockchain SDKs** | web3, solders, tronpy, cosmpy, py-near, pysui |
 | **MCP** | mcp ≥ 1.28.0 (Model Context Protocol) |
-| **Testing** | pytest 9+ (175 back-end), Vitest 4 (71 front-end) |
+| **Testing** | pytest 9+ (175 back-end), Vitest 4 (77 front-end) |
 | **Deployment** | Docker Compose, GitHub Actions CI |
 
 ---
@@ -420,14 +420,14 @@ Full docs: [`docs/mcp-server.md`](docs/mcp-server.md)
 
 ## Testing
 
-**246 automated tests** (175 backend + 71 frontend). CI runs on every push and PR via GitHub Actions.
+**252 automated tests** (175 backend + 77 frontend). CI runs on every push and PR via GitHub Actions.
 
 | Suite | Framework | Run |
 | :--- | :--- | :--- |
 | Backend | pytest 9 + aiosqlite + FastAPI TestClient | `cd backend && .venv\Scripts\pytest.exe -q` |
 | Frontend | Vitest 4 + React Testing Library + jsdom | `cd frontend && node node_modules/vitest/dist/cli.js run` |
 
-**Coverage highlights:** wallet signature verification (18 tests across all 6 chains), token reissue lifecycle (10 tests), token UX components (25 tests), agent store actions (8 tests), API client methods (11 tests), chain registry parity, database migration, dashboard endpoints, MCP server (hermetic + live), and live RPC integration.
+**Coverage highlights:** wallet signature verification (18 tests across all 6 chains), token reissue lifecycle (10 tests), token UX components (25 tests), agent store actions (8 tests), API client methods (11 tests), chain badge symbols (3 tests), chat chain inference (3 tests), chain registry parity, database migration, dashboard endpoints, MCP server (hermetic + live), and live RPC integration.
 
 Manual QA plans: [`docs/superpowers/plans/2026-06-30-token-ux-qa.md`](docs/superpowers/plans/2026-06-30-token-ux-qa.md)
 

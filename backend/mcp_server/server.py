@@ -57,6 +57,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+PACKAGE_VERSION = "1.0.0"
+
 # Capabilities that need an agent context. Native transfer executors use
 # protocol-specific encrypted keys for signing.
 _TRANSACT_CAPABILITIES = {"transact"}
@@ -194,7 +196,7 @@ async def main() -> None:
             write_stream,
             InitializationOptions(
                 server_name="pocketagent",
-                server_version="0.1.0",
+                server_version=PACKAGE_VERSION,
                 capabilities=server.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},
@@ -203,5 +205,10 @@ async def main() -> None:
         )
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    """Sync entry point for the ``pocketagent-mcp`` console script."""
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    cli()

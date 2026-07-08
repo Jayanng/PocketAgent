@@ -475,14 +475,14 @@ export default function Home() {
             <div className="mb-5 inline-flex rounded-xl p-2.5" style={{ background: "var(--gradient-blue)" }}>
               <Terminal size={20} className="text-white" />
             </div>
-            <h3 className="landing-card-title mb-3 text-[17px] font-semibold">pip install pocketagent</h3>
+            <h3 className="landing-card-title mb-3 text-[17px] font-semibold">pip install pokt-agent-mcp</h3>
             <p className="landing-card-desc mb-5 text-[13px] leading-relaxed">
               One command gives you the full PocketAgent MCP server — 51 blockchain
               tools, 5 resources, 4 prompts. Drop it into Claude Desktop, Cursor, or Codex.
             </p>
             <div className="inline-flex items-center gap-2 rounded-full border px-4 py-2 font-mono text-[13px]">
               <span className="text-emerald-400">$</span>
-              <span>pip install pocketagent</span>
+              <span>pip install pokt-agent-mcp</span>
             </div>
           </motion.div>
 

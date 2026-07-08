@@ -110,7 +110,16 @@ export default function DocsPage() {
                 {s.label}
               </button>
             ))}
-            <div className="mt-4 border-t pt-4">
+            <div className="mt-4 space-y-2 border-t pt-4">
+              <a
+                href="https://pypi.org/project/pokt-agent-mcp/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-[13px] font-medium opacity-50 transition hover:opacity-100"
+              >
+                PyPI
+                <ExternalLink size={11} />
+              </a>
               <a
                 href="https://github.com/Jayanng/PocketAgent"
                 target="_blank"
@@ -148,10 +157,23 @@ export default function DocsPage() {
           <div className="space-y-8">
             <div>
               <h3 className="mb-3 text-[15px] font-semibold">Install the MCP server</h3>
-              <CodeBlock lang="bash">pip install pocketagent</CodeBlock>
+              <CodeBlock lang="bash">pip install pokt-agent-mcp</CodeBlock>
               <p className="mt-3 text-[13px] opacity-60">
                 One command installs the full PocketAgent MCP server with 51 blockchain
-                tools. Requires Python 3.11+.
+                tools. Requires Python 3.11+. Published on{" "}
+                <a
+                  href="https://pypi.org/project/pokt-agent-mcp/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline decoration-white/30 underline-offset-2 transition hover:opacity-100"
+                >
+                  PyPI
+                </a>
+                .
+              </p>
+              <p className="mt-2 text-[13px] opacity-60">
+                Optional REST API dependencies:{" "}
+                <code className="rounded bg-white/10 px-1 py-0.5 text-xs">pip install &quot;pokt-agent-mcp[api]&quot;</code>
               </p>
             </div>
 
@@ -321,7 +343,10 @@ cd .. && npm run dev</CodeBlock>
           <SectionHeading id="mcp">MCP Server</SectionHeading>
           <p className="mb-6 text-[14px] leading-relaxed opacity-70">
             The standalone MCP server exposes all 51 tools, 5 resources, and 4
-            prompts over stdio transport. Compatible with any MCP client.
+            prompts over stdio transport. Install with{" "}
+            <code className="rounded bg-white/10 px-1 py-0.5 text-xs">pip install pokt-agent-mcp</code>{" "}
+            and launch via the <code className="rounded bg-white/10 px-1 py-0.5 text-xs">pocketagent-mcp</code>{" "}
+            console script. Compatible with any MCP client.
           </p>
 
           <div className="grid gap-6 sm:grid-cols-2 mb-8">

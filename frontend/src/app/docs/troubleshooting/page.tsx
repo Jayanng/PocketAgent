@@ -30,7 +30,8 @@ export default function TroubleshootingPage() {
         <DocsH3>404 on API calls from frontend</DocsH3>
         <DocsP>
           Ensure <code className="font-mono text-[12px]">NEXT_PUBLIC_API_URL</code> has no trailing slash.
-          A trailing <code className="font-mono text-[12px]">/</code> produces <code className="font-mono text-[12px]">//api/...</code> paths.
+          A trailing <code className="font-mono text-[12px]">/</code> produces{" "}
+          <code className="font-mono text-[12px]">{"//api/..."}</code> paths.
         </DocsP>
 
         <DocsH3>SSE stream drops mid-response</DocsH3>

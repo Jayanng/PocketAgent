@@ -29,6 +29,12 @@ export function DocsShell({ children }: { children: React.ReactNode }) {
   const { theme } = useLandingTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [lastPathname, setLastPathname] = useState(pathname);
+
+  if (pathname !== lastPathname) {
+    setLastPathname(pathname);
+    setMobileOpen(false);
+  }
 
   const filteredLinks = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -40,10 +46,6 @@ export function DocsShell({ children }: { children: React.ReactNode }) {
         item.description?.toLowerCase().includes(q),
     );
   }, [query]);
-
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
 
   useEffect(() => {
     document.body.style.overflow = mobileOpen ? "hidden" : "";

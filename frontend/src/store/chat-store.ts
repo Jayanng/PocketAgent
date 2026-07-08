@@ -222,7 +222,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const data = event.data;
           if (kind === "start" && typeof data.conversation_id === "string") {
             finalConversationId = data.conversation_id;
-            set((cur) => ({ currentConversationId: data.conversation_id as string }));
+            set(() => ({ currentConversationId: data.conversation_id as string }));
             return;
           }
           if (kind === "text_delta" && typeof data.text === "string") {
@@ -319,7 +319,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ? data.phase_budget_ms
                 : 90_000;
             const copy = buildClientErrorCopy(code, phase, elapsedMs, budgetMs);
-            set((cur) => ({
+            set(() => ({
               error: `${copy.title} — ${copy.body}`,
             }));
             emitApiError({

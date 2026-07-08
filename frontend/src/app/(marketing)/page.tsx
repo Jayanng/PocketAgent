@@ -26,7 +26,6 @@ import {
   Sparkles,
   CheckCircle2,
 } from "lucide-react";
-import { Logo } from "@/components/brand/logo";
 import { ProtocolFamiliesBanner } from "@/components/brand/protocol-families-banner";
 import { SiteHeader } from "@/components/layout/site-header";
 import { useLandingTheme } from "@/hooks/use-landing-theme";

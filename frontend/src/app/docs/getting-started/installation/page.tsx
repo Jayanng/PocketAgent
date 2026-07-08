@@ -39,7 +39,7 @@ export default function InstallationPage() {
         </DocsP>
 
         <DocsH3>Optional REST API extras</DocsH3>
-        <CodeBlock>pip install "pokt-agent-mcp[api]"</CodeBlock>
+        <CodeBlock>{`pip install "pokt-agent-mcp[api]"`}</CodeBlock>
         <DocsP>Includes FastAPI and Uvicorn if you want to run the full backend from the installed package.</DocsP>
 
         <DocsH2 id="source">Install from source</DocsH2>

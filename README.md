@@ -50,6 +50,22 @@ The platform ships with a **polished chat UI**, **Automations** (recurring agent
 
 ---
 
+## Value Proposition — What PocketAgent Brings to Pocket Network
+
+[Pocket Network](https://www.pokt.network/) provides open, permissionless, multi-chain RPC through the Shannon gateway — the foundation this project builds on. PocketAgent is an application layer that sits on top of that foundation: AI agents that chat, act, and (with **Automations**) run on a schedule, with every chain read and write routed through Pocket.
+
+| How PocketAgent extends the experience | In practice |
+| :--- | :--- |
+| **Continuous agent workloads** | Beyond interactive chat, **Automations** schedule the same LLM + tool path on intervals from 1 minute to 7 days — portfolio checks, gas comparisons, balance monitors, and more — so agents can keep using Pocket relays around the clock when users want that. |
+| **Natural multi-chain tool use** | Fifty-one tools span six protocol families (EVM, Cosmos, Solana, SUI, NEAR, TRON). A single prompt can fan out across an agent’s selected chains, putting Pocket’s broad network coverage to work in one conversational or automated flow. |
+| **A simple surface for multi-chain ops** | Users describe intent in natural language; the agent handles chain selection and tools. Unified multi-protocol wallets and the web UI make Pocket-backed multi-chain operations approachable for more people. |
+| **An open AI + Shannon reference** | PocketAgent is a full-stack, open example of agents (chat, REST API, MCP, and scheduled jobs) using **Shannon as their RPC backbone**. It is meant to help others see and reuse that pattern. |
+| **Clear relay visibility** | Dashboard analytics track relay volume and cost. Automations add per-run history and **relay counts for the last ten runs**, so users can see how their agents exercise Pocket in concrete, timestamped actions. |
+
+PocketAgent does not compete with Pocket Network — it **celebrates and applies it**: Shannon supplies the relays; agents and Automations supply the workflows that generate and surface them.
+
+---
+
 ## Key Features
 
 ### AI Agent Layer

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, Suspense, useEffect, useMemo, useState } from "react";
+import { Fragment, Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -124,32 +124,34 @@ function ScheduledTasksPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { addToast } = useToast();
-  const [createOpen, setCreateOpen] = useState(false);
+  // Manual open from "New Automation" (no URL prefill).
+  const [manualCreateOpen, setManualCreateOpen] = useState(false);
   const [editTask, setEditTask] = useState<ScheduledTask | null>(null);
   const [deleteTask, setDeleteTask] = useState<ScheduledTask | null>(null);
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
   const [expandedRelays, setExpandedRelays] = useState<Set<string>>(new Set());
+
   // Chat "Schedule this" deep-link: ?prefill=...&agent_id=...
-  const [prefillPrompt, setPrefillPrompt] = useState("");
-  const [prefillAgentId, setPrefillAgentId] = useState("");
-  const [createSeed, setCreateSeed] = useState(0);
+  // Derive from URL — no setState in an effect (eslint react-hooks/set-state-in-effect).
+  const prefillPrompt = (searchParams.get("prefill") ?? "").slice(0, 2000);
+  const prefillAgentId = searchParams.get("agent_id") ?? "";
+  const createOpen = Boolean(prefillPrompt) || manualCreateOpen;
+  const createSeed = prefillPrompt
+    ? `prefill:${prefillPrompt}:${prefillAgentId}`
+    : manualCreateOpen
+      ? "manual"
+      : "closed";
+
+  const clearPrefillQuery = () => {
+    if (!searchParams.get("prefill") && !searchParams.get("agent_id")) return;
+    router.replace("/scheduled-tasks", { scroll: false });
+  };
 
   const agentsQuery = useQuery({
     queryKey: ["agents", "list"],
     queryFn: () => api.agents.list(),
     staleTime: 30_000,
   });
-
-  useEffect(() => {
-    const prefill = searchParams.get("prefill");
-    if (!prefill) return;
-    setPrefillPrompt(prefill.slice(0, 2000));
-    setPrefillAgentId(searchParams.get("agent_id") ?? "");
-    setCreateSeed((n) => n + 1);
-    setCreateOpen(true);
-    // Drop query so refresh doesn't re-open; keep path as /scheduled-tasks.
-    router.replace("/scheduled-tasks", { scroll: false });
-  }, [searchParams, router]);
 
   const agents = useMemo(() => agentsQuery.data ?? [], [agentsQuery.data]);
   const agentNameById = useMemo(() => {
@@ -245,7 +247,7 @@ function ScheduledTasksPageInner() {
             Network relays
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)} className="w-full sm:w-auto">
+        <Button onClick={() => setManualCreateOpen(true)} className="w-full sm:w-auto">
           <Plus size={16} />
           New Automation
         </Button>
@@ -276,7 +278,7 @@ function ScheduledTasksPageInner() {
             Each run uses Pocket Network relays under your agent&apos;s
             capabilities and spending caps.
           </p>
-          <Button className="mt-6" onClick={() => setCreateOpen(true)}>
+          <Button className="mt-6" onClick={() => setManualCreateOpen(true)}>
             <Plus size={16} />
             Create your first automation
           </Button>
@@ -450,11 +452,13 @@ function ScheduledTasksPageInner() {
         key={`create-${createSeed}`}
         open={createOpen}
         onOpenChange={(open) => {
-          setCreateOpen(open);
-          if (!open) {
-            setPrefillPrompt("");
-            setPrefillAgentId("");
+          if (open) {
+            setManualCreateOpen(true);
+            return;
           }
+          setManualCreateOpen(false);
+          // Clearing URL removes derived prefill and closes deep-link open state.
+          clearPrefillQuery();
         }}
         agents={agents}
         initialPrompt={prefillPrompt}

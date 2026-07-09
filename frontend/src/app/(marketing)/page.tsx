@@ -163,17 +163,121 @@ function GradientBackground() {
   );
 }
 
-function FeatureCardVisual({
-  gradient,
-  compact = false,
-}: {
-  gradient: string;
-  compact?: boolean;
-}) {
+function DecentralizedVisual() {
+  const reduce = useReducedMotion();
+  
+  const containerVariants = {
+    hidden: {},
+    visible: {
+      transition: {
+        staggerChildren: 0.3,
+      }
+    }
+  };
+
+  const lineVariants = {
+    hidden: { opacity: 0, x: -5 },
+    visible: {
+      opacity: 1,
+      x: 0,
+      transition: { duration: 0.4, ease: EASE_OUT }
+    }
+  };
+
   return (
-    <div className={cn("landing-card-visual", compact && "landing-card-visual-sm")}>
-      <div className="landing-card-visual-glow" style={{ background: gradient }} />
-      <div className="landing-card-visual-grid" />
+    <div className="landing-card-visual landing-card-visual-sm flex flex-col justify-start bg-slate-950/95 font-mono text-[10px] text-slate-300 p-3 select-none leading-relaxed border border-slate-800/80 rounded-xl overflow-hidden mt-6">
+      <div className="flex items-center gap-1.5 border-b border-slate-900 pb-1.5 mb-1.5 opacity-60">
+        <div className="h-1.5 w-1.5 rounded-full bg-rose-500/80" />
+        <div className="h-1.5 w-1.5 rounded-full bg-amber-500/80" />
+        <div className="h-1.5 w-1.5 rounded-full bg-emerald-500/80" />
+        <span className="ml-1 text-[9px] text-slate-400">shannon-gateway-relay.log</span>
+      </div>
+      <motion.div 
+        variants={reduce ? undefined : containerVariants} 
+        initial="hidden" 
+        animate="visible"
+        className="flex flex-col gap-1 text-[9px] md:text-[10px]"
+      >
+        <motion.div variants={lineVariants} className="flex items-center justify-between">
+          <span className="text-sky-400 font-semibold">$ request eth_getBalance</span>
+          <span className="text-slate-500 text-[8px]">ethereum</span>
+        </motion.div>
+        <motion.div variants={lineVariants} className="flex items-center gap-1 text-emerald-400 pl-2">
+          <span className="inline-block h-1 w-1 rounded-full bg-emerald-400 animate-pulse" />
+          <span>[Pocket RPC] relay success • 38ms</span>
+        </motion.div>
+        
+        <motion.div variants={lineVariants} className="flex items-center justify-between mt-0.5 hidden xs:flex">
+          <span className="text-sky-400 font-semibold">$ request getSlot</span>
+          <span className="text-slate-500 text-[8px]">solana</span>
+        </motion.div>
+        <motion.div variants={lineVariants} className="flex items-center gap-1 text-emerald-400 pl-2 hidden xs:flex">
+          <span className="inline-block h-1 w-1 rounded-full bg-emerald-400" />
+          <span>[Pocket RPC] relay success • 24ms</span>
+        </motion.div>
+      </motion.div>
+    </div>
+  );
+}
+
+function AutomationsVisual() {
+  const reduce = useReducedMotion();
+
+  const containerVariants = {
+    hidden: {},
+    visible: {
+      transition: {
+        staggerChildren: 0.3,
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, scale: 0.95 },
+    visible: {
+      opacity: 1,
+      scale: 1,
+      transition: { duration: 0.3, ease: EASE_OUT }
+    }
+  };
+
+  return (
+    <div className="landing-card-visual landing-card-visual-sm flex items-center justify-between bg-slate-950/95 p-3 select-none border border-slate-800/80 rounded-xl overflow-hidden mt-6">
+      {/* Left side: Interval Badge */}
+      <div className="flex flex-col gap-1 items-start shrink-0">
+        <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">Schedule</span>
+        <div className="flex items-center gap-1 rounded-full bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 text-blue-400">
+          <CalendarClock size={10} className="animate-pulse" />
+          <span className="text-[10px] font-mono font-medium ml-1">Every 1h</span>
+        </div>
+      </div>
+
+      {/* Connection Line */}
+      <div className="hidden sm:block flex-1 mx-3 border-t border-dashed border-slate-850" />
+
+      {/* Right side: Runs List */}
+      <motion.div 
+        variants={reduce ? undefined : containerVariants}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true }}
+        className="flex flex-col gap-1.5 w-[140px] sm:w-[160px]"
+      >
+        <motion.div variants={itemVariants} className="flex items-center justify-between rounded bg-slate-900/60 border border-slate-800/40 px-2 py-0.5">
+          <div className="flex items-center gap-1.5">
+            <span className="h-1 w-1 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[9px] font-mono text-slate-300">10:00:00</span>
+          </div>
+          <span className="text-[8px] font-mono text-slate-500 font-medium">success</span>
+        </motion.div>
+        <motion.div variants={itemVariants} className="flex items-center justify-between rounded bg-slate-900/60 border border-slate-800/40 px-2 py-0.5 opacity-70">
+          <div className="flex items-center gap-1.5">
+            <span className="h-1 w-1 rounded-full bg-emerald-400" />
+            <span className="text-[9px] font-mono text-slate-400">09:00:00</span>
+          </div>
+          <span className="text-[8px] font-mono text-slate-500">success</span>
+        </motion.div>
+      </motion.div>
     </div>
   );
 }
@@ -335,10 +439,14 @@ export default function Home() {
                     {feature.description}
                   </p>
 
-                  {feature.title === "52-Chain Network" ? (
+                  {feature.title === "52-Chain Network" && (
                     <ProtocolFamiliesBanner />
-                  ) : (
-                    <FeatureCardVisual gradient={feature.gradient} compact />
+                  )}
+                  {feature.title === "Decentralized by Design" && (
+                    <DecentralizedVisual />
+                  )}
+                  {feature.title === "Automations" && (
+                    <AutomationsVisual />
                   )}
                 </div>
               </motion.div>

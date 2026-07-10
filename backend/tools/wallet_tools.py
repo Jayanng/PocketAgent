@@ -63,6 +63,15 @@ async def analyze_wallet(context: ToolContext, args: dict[str, Any]) -> dict[str
     }
     if include_tokens:
         result["tokens"] = tokens
+        # Let the LLM know that EVM token discovery probes a curated set — the
+        # wallet may hold tokens not in this list.  Solana / Cosmos / Sui
+        # discovery is protocol-native and exhaustive.
+        result["_token_discovery_note"] = (
+            "EVM token detection checks a small curated list of common tokens "
+            "(USDC, USDT, LINK, etc.) via balanceOf. The wallet may hold "
+            "additional ERC-20 tokens not in this list. Solana, Cosmos, and Sui "
+            "token discovery uses protocol-native enumeration and is exhaustive."
+        )
     if include_costs:
         relay_count = len(chains) * OPERATION_RELAY_COUNTS["read_balance"]
         result["notional_relay_cost"] = {

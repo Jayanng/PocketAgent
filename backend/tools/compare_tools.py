@@ -40,6 +40,11 @@ async def estimate_transaction_cost(context: ToolContext, args: dict[str, Any]) 
             "gas_price_gwei": gas_price_gwei,
             "estimated_native_fee": estimated_native,
             "gas": gas,
+            "_note": (
+                f"Gas unit estimate ({gas_units}) is a typical value for a simple "
+                f"{operation_type} operation. Complex contracts or high-congestion "
+                "periods may require more. Use evm_estimate_gas for a precise value."
+            ),
         }
 
     return {

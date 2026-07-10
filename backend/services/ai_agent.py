@@ -2,6 +2,7 @@ import asyncio
 import ast
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -37,6 +38,108 @@ except ImportError:
     from services.relay_tracker import RelayTrackerService
 
 logger = logging.getLogger(__name__)
+
+# -------------------------------------------------------------------------
+# Anti-hallucination: keyword heuristic for forcing tool_choice="required"
+# -------------------------------------------------------------------------
+# When the user message contains enough blockchain-query keywords (or an
+# on-chain address), the first LLM call uses tool_choice="required" so the
+# model cannot skip tools and answer from its pre-training data. Casual
+# conversation ("hello", "what can you do?") still uses "auto".
+_ONCHAIN_TRIGGER_KEYWORDS: frozenset[str] = frozenset({
+    "balance", "balances", "send", "transfer", "transaction", "transactions", "tx",
+    "gas", "block", "blocks", "wallet", "analyze",
+    "portfolio", "token", "tokens", "contract", "swap", "stake", "staking",
+    "broadcast", "receipt", "nonce", "estimate", "compare", "recommend",
+    "cheapest", "cost", "costs", "relay", "relays", "stats", "analytics",
+    "breakdown", "history", "holdings", "asset", "assets", "allocation",
+    "deploy", "mint", "nft", "approve", "allowance", "bridge",
+    "signed", "sign", "decimals", "confirm", "confirmed", "blockchain",
+    "network", "state", "tps", "throughput", "finality", "latency",
+    "validator", "validators", "proposer", "consensus", "throughput",
+    "execution", "reverted", "revert", "pending", "queued", "mempool",
+    "pool", "liquidity", "yield", "farm", "farming", "apr", "apy",
+    "cheap",
+})
+
+# ── Address / identifier patterns (multi-chain) ─────────────────────────
+# Used by the heuristic to detect when a user message contains an on-chain
+# address and by _validate_response_grounding to audit the LLM response.
+#
+# Formats covered:
+#   EVM address ............ 0x + 40 hex
+#   EVM tx hash ............ 0x + 64 hex
+#   SUI address / tx digest  0x + 64 hex
+#   Solana address / sig ... base58, 43-44 chars (no 0x prefix)
+#   Tron address ........... base58, T + 33 chars
+#   Cosmos bech32 / NEAR ... deliberately omitted — too variable to regex
+#                            reliably; guarded by numeric validation instead.
+_ADDRESS_PATTERN = re.compile(
+    r"0x[a-fA-F0-9]{40,64}"
+    r"|[1-9A-HJ-NP-Za-km-z]{40,46}"
+    r"|T[1-9A-HJ-NP-Za-km-z]{33}",
+)
+
+_HEX_ID_PATTERN = re.compile(r"0x[a-fA-F0-9]{40,64}")
+
+# Tokenise the message into lowercased alphabetic words so keyword matching
+# never double-counts sub-words (e.g. "blocks" should match "blocks" but not
+# "block" when both are in the keyword set).
+_WORD_PATTERN = re.compile(r"\b[a-z]+\b")
+
+# Write-operation keywords that require an address before we force a tool
+# call.  Without this guard "send tokens" would trigger tool_choice="required"
+# and the LLM would be forced to fabricate parameters for send_transaction.
+_WRITE_KEYWORDS: frozenset[str] = frozenset({
+    "send", "transfer", "transferring", "broadcast", "swap", "swapping", "stake", "staking",
+    "deploy", "deploying", "mint", "minting", "approve", "bridge", "bridging", "burn", "burning",
+})
+
+# When a message contains both write keywords AND read-action keywords
+# (e.g. "recommend cheapest chain for transfer"), the user is clearly
+# querying, not writing — skip the write safety guard.
+_READ_ACTION_KEYWORDS: frozenset[str] = frozenset({
+    "recommend", "compare", "estimate", "cheapest", "cheap", "analyze",
+    "check", "stats", "analytics", "breakdown", "history",
+    "cost", "costs", "gas", "balance", "balances", "portfolio",
+    "holdings", "allocation", "receipt", "status",
+})
+
+# Tool names that perform writes.  Used by _resolve_tool_choice so a
+# read-only agent never gets forced into ``tool_choice="required"`` when
+# the user asks to send — the LLM stays on ``"auto"`` and can explain the
+# capability gap instead of calling a random read tool.
+_WRITE_TOOL_NAMES: frozenset[str] = frozenset({
+    "send_transaction", "send_erc20", "contract_call",
+})
+
+
+def _requires_onchain_data(message: str) -> bool:
+    """Return True when the message clearly asks for live blockchain data.
+
+    Used to switch ``tool_choice`` from ``"auto"`` to ``"required"`` so the
+    model cannot hallucinate numeric answers without calling a tool.  The
+    heuristic is deliberately conservative: casual conversation ("hello",
+    "what can you do?", "explain gas") still uses ``"auto"``.
+
+    Write-intent messages without an explicit on-chain address are never
+    forced — the LLM stays on ``"auto"`` so it can ask for missing
+    parameters instead of fabricating them.
+    """
+    msg_lower = message.lower()
+    if _ADDRESS_PATTERN.search(message):
+        return True
+    words = set(_WORD_PATTERN.findall(msg_lower))
+    keyword_hits = sum(1 for kw in _ONCHAIN_TRIGGER_KEYWORDS if kw in words)
+    if keyword_hits < 2:
+        return False
+    has_write = any(kw in words for kw in _WRITE_KEYWORDS)
+    if has_write:
+        has_read_action = any(kw in words for kw in _READ_ACTION_KEYWORDS)
+        if not has_read_action:
+            return False
+    return True
+
 
 # -----------------------------------------------------------------------------
 # Shared OpenAI client pool
@@ -227,7 +330,7 @@ class AIAgentService:
                 model=self.model,
                 messages=messages,
                 tools=tools if tools else None,
-                tool_choice="auto" if tools else None,
+                tool_choice=self._resolve_tool_choice(tools, message),
                 temperature=self.settings.openai_temperature,
                 max_tokens=self.settings.openai_max_tokens,
             )
@@ -275,7 +378,19 @@ class AIAgentService:
                         }
                     )
 
-                second_messages = [*messages, assistant_tool_call_message, *tool_result_messages]
+                second_messages = [
+                    *messages,
+                    assistant_tool_call_message,
+                    *tool_result_messages,
+                    {
+                        "role": "user",
+                        "content": (
+                            "Synthesize a concise answer using ONLY the data returned by the tools above. "
+                            "Do not invent any numbers, addresses, hashes, or statuses. "
+                            "If a tool returned an error, report it — do not guess."
+                        ),
+                    },
+                ]
                 second = await self.openai_client.chat.completions.create(
                     model=self.model,
                     messages=second_messages,
@@ -286,6 +401,12 @@ class AIAgentService:
                 final_text = second_message.content or final_text
                 if second.usage:
                     total_tokens += int(second.usage.total_tokens)
+
+                warning = self._validate_response(
+                    final_text, chain_calls, user_message=message
+                )
+                if warning:
+                    final_text = f"{final_text}\n\n{warning}"
 
             assistant_row = await create_message(
                 db=db,
@@ -452,7 +573,10 @@ class AIAgentService:
                 accumulated_tool_calls: dict[int, dict[str, Any]] = {}
                 total_tokens = 0
                 try:
-                    async for evt in self._stream_completion(messages=messages, tools=tools):
+                    async for evt in self._stream_completion(
+                        messages=messages, tools=tools,
+                        tool_choice=self._resolve_tool_choice(tools, message),
+                    ):
                         kind = evt["kind"]
                         if kind == "delta":
                             if t_ttft is None:
@@ -574,7 +698,19 @@ class AIAgentService:
                         )
 
                     # ---------- Second LLM stream with tool results ----------
-                    second_messages = [*messages, assistant_tool_call_message, *tool_result_messages]
+                    second_messages = [
+                        *messages,
+                        assistant_tool_call_message,
+                        *tool_result_messages,
+                        {
+                            "role": "user",
+                            "content": (
+                                "Synthesize a concise answer using ONLY the data returned by the tools above. "
+                                "Do not invent any numbers, addresses, hashes, or statuses. "
+                                "If a tool returned an error, report it — do not guess."
+                            ),
+                        },
+                    ]
                     try:
                         async for evt in self._stream_completion(messages=second_messages, tools=None):
                             kind = evt["kind"]
@@ -614,6 +750,13 @@ class AIAgentService:
                     timing["total_ms"],
                     ",".join(f"{t['tool']}={t['duration_ms']}ms" for t in timing["tools"]) or "none",
                 )
+
+                warning = self._validate_response(
+                    accumulated_text, chain_calls, user_message=message
+                )
+                if warning:
+                    accumulated_text = f"{accumulated_text}\n\n{warning}"
+                    yield {"event": "text_delta", "text": f"\n\n{warning}"}
 
                 assistant_row = await create_message(
                     db=db,
@@ -676,6 +819,7 @@ class AIAgentService:
         *,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None,
+        tool_choice: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Wrap the OpenAI stream-completions API as a typed internal event stream.
 
@@ -689,7 +833,7 @@ class AIAgentService:
             model=self.model,
             messages=messages,
             tools=tools if tools else None,
-            tool_choice="auto" if tools else None,
+            tool_choice=tool_choice,
             temperature=self.settings.openai_temperature,
             max_tokens=self.settings.openai_max_tokens,
             stream=True,
@@ -739,6 +883,7 @@ class AIAgentService:
             "2. NO HALLUCINATED DATA — call a tool for every live metric (balances, gas, blocks, fees, tx status). Never quote a numeric value unless it came from a tool result in THIS conversation. If an address is missing, ask.\n"
             "3. BROADCAST handling — when a tx tool returns status='broadcast' with a tx_hash, tell the user it's broadcasting and an auto-confirmation will arrive in ~30s. Always include the tx_hash and (if present) the block-explorer URL. NEVER claim completion, NEVER estimate finality, NEVER tell the user to ask again.\n"
             "4. Be concise — lead with the answer, short paragraphs or bullets, no filler.\n"
+            "5. GROUNDING — when synthesizing a response from tool results, include ONLY data explicitly present in those results. Never invent numbers, addresses, tx hashes, statuses, chain metadata, or explorer URLs that did not come from a tool result. If a tool returns an error or unavailable status, report that error honestly — do not guess. If results are incomplete or a required parameter is missing, ask the user for clarification instead of fabricating.\n"
         )
 
     def get_tool_definitions(self, agent: dict[str, Any]) -> list[dict[str, Any]]:
@@ -746,6 +891,41 @@ class AIAgentService:
         capabilities = set(agent.get("capabilities") or [])
         chains = agent.get("chains") or []
         return get_tool_schemas(capabilities, agent_chains=list(chains) if chains else None)
+
+    @staticmethod
+    def _resolve_tool_choice(tools: list[dict[str, Any]] | None, user_message: str) -> str | None:
+        """Pick the OpenAI ``tool_choice`` value for the first LLM call.
+
+        Returns ``"required"`` when the user message clearly asks for live
+        blockchain data AND at least one tool is registered for this agent.
+        Casual conversation / help prompts still use ``"auto"`` so the model
+        can respond without forcing a spurious tool call.
+
+        Write-intent messages (send, transfer, …) are downgraded to
+        ``"auto"`` when the agent lacks transact-capable tools, so the LLM
+        can explain the capability gap instead of being forced to call an
+        unrelated read tool.
+        """
+        if not tools:
+            return None
+        if not _requires_onchain_data(user_message):
+            return "auto"
+        # If the user is asking to write but no write tools are available,
+        # keep "auto" so the LLM explains the limitation instead of calling
+        # a random read tool and fabricating a "sent" response.
+        msg_lower = user_message.lower()
+        has_write = any(
+            re.search(r"\b" + re.escape(kw), msg_lower)
+            for kw in _WRITE_KEYWORDS
+        )
+        if has_write:
+            available_names = {
+                t.get("function", {}).get("name", "")
+                for t in tools
+            }
+            if not (_WRITE_TOOL_NAMES & available_names):
+                return "auto"
+        return "required"
 
     async def close(self) -> None:
         # Only close the client when this service instance owns it. If the
@@ -773,6 +953,171 @@ class AIAgentService:
             conversation_id=getattr(self, "_active_conversation_id", None),
         )
         return await execute_tool(tool_name, context, args)
+
+    @staticmethod
+    def _validate_response_grounding(
+        response_text: str,
+        chain_calls: list[dict[str, Any]],
+        user_message: str = "",
+    ) -> str | None:
+        """Cross-check the LLM response for fabricated on-chain identifiers.
+
+        Returns a short warning string if the response contains ``0x…`` hex
+        identifiers (addresses, tx hashes) that never appeared in any tool
+        result *or* the user's original message.  Returns ``None`` when the
+        response is clean.
+
+        This is a structural safety net, not a numeric audit — it catches
+        the most dangerous hallucination (invented addresses / tx hashes)
+        without triggering false positives on rounded or derived amounts.
+        """
+        if not chain_calls:
+            return None
+        # Collect every 0x… identifier known to this turn.
+        allowed_ids: set[str] = set(_HEX_ID_PATTERN.findall(user_message))
+        for call in chain_calls:
+            args_str = json.dumps(call.get("args", {}))
+            result_str = json.dumps(call.get("result", {}))
+            allowed_ids.update(_HEX_ID_PATTERN.findall(args_str))
+            allowed_ids.update(_HEX_ID_PATTERN.findall(result_str))
+        # Identifiers in the LLM response that were never seen before.
+        response_ids = set(_HEX_ID_PATTERN.findall(response_text))
+        fabricated = response_ids - allowed_ids
+        if not fabricated:
+            return None
+        logger.warning(
+            "response_grounding_fail count=%d ids=%s",
+            len(fabricated),
+            ", ".join(sorted(fabricated)[:5]),
+        )
+        return (
+            "[Note: some referenced identifiers could not be verified "
+            "against tool results and may be inaccurate.]"
+        )
+
+    # ── numeric cross-validation ──────────────────────────────────────────
+    # Matches decimal numbers that look like meaningful amounts (balances,
+    # gas prices, block heights, USD values).  Excludes hex, dates, and
+    # single-digit counts.
+    _AMOUNT_PATTERN = re.compile(
+        r"(?<![0-9a-fA-Fx#])(\d[\d,._]*\d)(?![0-9a-fA-F/\-])",
+    )
+
+    # Words / suffixes that, when adjacent to a number, indicate the number
+    # is NOT a blockchain amount (e.g. "30 seconds", "5 attempts", "2nd").
+    _NON_AMOUNT_CONTEXT = re.compile(
+        r"(second|minute|hour|day|week|month|year|"
+        r"times?|steps?|retries?|attempts?|retry|"
+        r"\dst\b|\dnd\b|\drd\b|\dth\b|"   # ordinal: 1st, 2nd, 3rd, 4th
+        r"confirmations?|"
+        r"blocks?\b|"
+        r"tokens?\b)\b",
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _validate_response_numbers(
+        response_text: str,
+        chain_calls: list[dict[str, Any]],
+    ) -> str | None:
+        """Check whether numeric values in the LLM response are traceable to
+        tool results.
+
+        Returns a warning string when the response contains meaningful
+        numbers that cannot be matched (exactly, rounded, or within a 3 %
+        relative tolerance) to any value returned by the tools.  Small
+        integers (≤ 10), hex identifiers, percentages, and time/ordinal
+        values are deliberately excluded to avoid false positives on
+        derived counts and boilerplate text.
+        """
+        if not chain_calls:
+            return None
+
+        # ── collect knowable numbers from tool args + results ──────────
+        tool_numbers: set[float] = set()
+        for call in chain_calls:
+            for field in ("args", "result"):
+                raw = json.dumps(call.get(field, {}))
+                for m in AIAgentService._AMOUNT_PATTERN.finditer(raw):
+                    try:
+                        tool_numbers.add(
+                            float(m.group(1).replace(",", "").replace("_", ""))
+                        )
+                    except ValueError:
+                        pass
+
+        if not tool_numbers:
+            return None
+
+        # Pre-compute rounded versions so we can match "1.23" ↔ "1.234567".
+        rounded_tool: set[float] = {round(v, 2) for v in tool_numbers}
+        rounded_tool.update({round(v, 1) for v in tool_numbers})
+        rounded_tool.update({round(v, 0) for v in tool_numbers})
+
+        # ── scan the response ──────────────────────────────────────────
+        suspicious: list[tuple[float, str]] = []
+        for m in AIAgentService._AMOUNT_PATTERN.finditer(response_text):
+            raw_num = m.group(1)
+            try:
+                val = float(raw_num.replace(",", "").replace("_", ""))
+            except ValueError:
+                continue
+            if val <= 10:
+                continue
+            ctx_start = max(0, m.start() - 40)
+            ctx_end = min(len(response_text), m.end() + 40)
+            ctx = response_text[ctx_start:ctx_end]
+            if AIAgentService._NON_AMOUNT_CONTEXT.search(ctx):
+                continue
+            # Match against tool numbers with progressive tolerance.
+            matched = False
+            for tv in tool_numbers:
+                if tv == 0:
+                    continue
+                rel_diff = abs(val - tv) / max(abs(tv), 1e-12)
+                if rel_diff < 0.03:          # 3 % relative tolerance
+                    matched = True
+                    break
+            if not matched and round(val, 0) in rounded_tool:
+                matched = True
+            if not matched and round(val, 1) in rounded_tool:
+                matched = True
+            if not matched and round(val, 2) in rounded_tool:
+                matched = True
+            if not matched:
+                suspicious.append((val, raw_num))
+
+        if not suspicious:
+            return None
+
+        logger.warning(
+            "response_number_validation_fail count=%d values=%s",
+            len(suspicious),
+            [raw for _, raw in suspicious[:10]],
+        )
+        return (
+            "[Note: one or more numeric values in this response could not "
+            "be verified against tool results and may be inaccurate.]"
+        )
+
+    # ── combined validation entry point ───────────────────────────────────
+    @staticmethod
+    def _validate_response(
+        response_text: str,
+        chain_calls: list[dict[str, Any]],
+        user_message: str = "",
+    ) -> str | None:
+        """Run all response validation checks and return a combined warning."""
+        warnings: list[str] = []
+        w = AIAgentService._validate_response_grounding(
+            response_text, chain_calls, user_message
+        )
+        if w:
+            warnings.append(w)
+        w = AIAgentService._validate_response_numbers(response_text, chain_calls)
+        if w:
+            warnings.append(w)
+        return "\n".join(warnings) if warnings else None
 
     @staticmethod
     def _build_timing_dict(
@@ -866,6 +1211,11 @@ class AIAgentService:
             compact: dict[str, Any] = {
                 "truncated": True,
                 "original_size_chars": len(serialized),
+                "_warning": (
+                    "This result was truncated because it exceeded the size limit. "
+                    "Do NOT invent or guess the missing data — only reference what is visible. "
+                    "Tell the user the result was too large and share the visible portion."
+                ),
             }
             for key, value in result.items():
                 if isinstance(value, list):
@@ -881,6 +1231,11 @@ class AIAgentService:
             {
                 "truncated": True,
                 "original_size_chars": len(serialized),
+                "_warning": (
+                    "This result was truncated because it exceeded the size limit. "
+                    "Do NOT invent or guess the missing data. "
+                    "Tell the user the result was too large and share only what is visible."
+                ),
                 "preview": serialized[: max_chars - 200],
             }
         )

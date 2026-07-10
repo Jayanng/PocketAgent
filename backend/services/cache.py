@@ -13,6 +13,17 @@ except ImportError:
 class ResponseCache:
     """Two-tier cache for Pocket RPC responses with relay-savings stats."""
 
+    # Methods whose result can change while a transaction is still pending.
+    # Cached with a short TTL so the LLM never presents stale confirmation
+    # status as if the transaction already settled.
+    _PENDING_TTL = 30  # seconds
+
+    _PENDING_METHODS: frozenset[str] = frozenset({
+        "eth_getTransactionByHash",
+        "eth_getTransactionReceipt",
+        "wallet/gettransactioninfobyid",
+    })
+
     def __init__(
         self,
         ttl_balance: int = 300,
@@ -25,6 +36,7 @@ class ResponseCache:
         self.balance_cache = TTLCache(maxsize=20_000, ttl=ttl_balance)
         self.gas_cache = TTLCache(maxsize=5_000, ttl=ttl_gas)
         self.health_cache = TTLCache(maxsize=5_000, ttl=ttl_health)
+        self.pending_cache = TTLCache(maxsize=5_000, ttl=self._PENDING_TTL)
         self.pokt_per_relay = pokt_per_relay if pokt_per_relay is not None else settings.notional_pokt_per_relay
         self.hits = 0
         self.misses = 0
@@ -38,13 +50,10 @@ class ResponseCache:
     def _is_immutable(self, method: str, params: list[Any] | None) -> bool:
         if method in {
             "eth_chainId",
-            "eth_getTransactionByHash",
-            "eth_getTransactionReceipt",
             "getTransaction",
             "getBlock",
             "sui_getTransactionBlock",
             "tx",
-            "wallet/gettransactioninfobyid",
         }:
             return True
         if method == "eth_getBlockByNumber" and params:
@@ -73,6 +82,8 @@ class ResponseCache:
             target = self.balance_cache
         elif self._is_gas(method):
             target = self.gas_cache
+        elif method in self._PENDING_METHODS:
+            target = self.pending_cache
         value = target.get(key)
         if value is None:
             self.misses += 1
@@ -90,6 +101,9 @@ class ResponseCache:
             return
         if self._is_gas(method):
             self.gas_cache[key] = value
+            return
+        if method in self._PENDING_METHODS:
+            self.pending_cache[key] = value
             return
         self.health_cache[key] = value
 

@@ -546,6 +546,11 @@ class PocketRPCClient:
                     "transfer_native": f"{estimated_native:.9f} {symbol}",
                     "transfer_usd": self._usd_label(estimated_usd),
                 },
+                "_note": (
+                    "Cosmos fee is a static SDK-default estimate (250k gas x 0.025 "
+                    "minimum-gas-price). Actual fees vary per validator set and "
+                    "mempool congestion. This is NOT a live query."
+                ),
             }
         return {"chain": chain, "protocol": protocol, "fee_model": "protocol-specific"}
 

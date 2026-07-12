@@ -196,6 +196,52 @@ This is where the MCP server (pokt-agent-mcp) comes in. Developers can drop Pock
 
 ---
 
+## Pocket RPC Endpoint and Integration Evidence
+
+All 52 chains in PocketAgent route through **Pocket Network's decentralized Shannon gateway** using a single, consistent URL pattern:
+
+```
+https://{chain}.api.pocket.network
+```
+
+### Live RPC Endpoints (All 52 Chains)
+
+| Protocol | Count | Example Endpoints |
+|----------|:-----:|-------------------|
+| **EVM** | 36 | `https://eth.api.pocket.network`, `https://poly.api.pocket.network`, `https://base.api.pocket.network` |
+| **Solana** | 1 | `https://solana.api.pocket.network` |
+| **SUI** | 1 | `https://sui.api.pocket.network` |
+| **NEAR** | 1 | `https://near.api.pocket.network` |
+| **TRON** | 1 | `https://tron.api.pocket.network` |
+| **Cosmos** | 12 | `https://osmosis.api.pocket.network`, `https://pocket.api.pocket.network`, `https://akash.api.pocket.network` |
+
+> 🔗 Full chain registry: [`backend/services/chain_registry.py`](backend/services/chain_registry.py)
+
+### Live Code Evidence
+
+The following source files prove that **every chain call goes through Pocket Network**:
+
+| File | What it proves |
+|------|----------------|
+| [`backend/services/chain_registry.py`](backend/services/chain_registry.py) | **All 52 chains** have their `url` field set to `https://{slug}.api.pocket.network` — the single source of truth |
+| [`backend/services/pocket_rpc.py`](backend/services/pocket_rpc.py) | **`PocketRPCClient`** reads URLs from registry, handles retries with exponential backoff, rate-limits at 30 req/s |
+| [`backend/config.py`](backend/config.py#L75-L89) | Documents the pattern: `# Format: https://{chain-slug}.api.pocket.network` |
+| [`backend/services/near_transfer.py`](backend/services/near_transfer.py#L6) | NEAR write RPC: `NEAR_RPC_URL = "https://near.api.pocket.network"` |
+| [`backend/services/near_nep141_transfer.py`](backend/services/near_nep141_transfer.py#L6) | NEAR NEP-141 write RPC: `NEAR_RPC_URL = "https://near.api.pocket.network"` |
+| [`backend/services/sui_transfer.py`](backend/services/sui_transfer.py#L14) | SUI write RPC: `DEFAULT_SUI_WRITE_RPC = "https://sui.api.pocket.network"` |
+| [`backend/services/relay_tracker.py`](backend/services/relay_tracker.py) | **Every single RPC call** is logged — relay count, latency, chain, and success/failure |
+| [`frontend/src/lib/constants.ts`](frontend/src/lib/constants.ts#L74-L88) | Frontend constants mirror the same `https://{chain}.api.pocket.network` URLs |
+
+### How Every Request Flows
+
+```
+User Prompt → LLM selects tool → PocketRPCClient → https://{chain}.api.pocket.network → Shannon Gateway → Blockchain
+```
+
+> **No Infura. No Alchemy. No centralized API keys.** Every single blockchain operation — balance checks, gas estimates, token transfers, contract calls, transaction broadcasts — goes through **Pocket Network's decentralized infrastructure**.
+
+---
+
 ## Quick Start
 
 ### Prerequisites

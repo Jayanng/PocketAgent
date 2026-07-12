@@ -69,16 +69,22 @@ PocketAgent does not compete with Pocket Network — it **celebrates and applies
 ## How does PocketAgent benefit everyday users — from complete beginners to developers?
 
 PocketAgent meets people exactly where they are. You don't need to know what an RPC endpoint is to use it — you just type what you want in plain English, and the AI handles the blockchain complexity behind the scenes.
-**For the total novice (never touched crypto before)**
+
+### 🐣 For the total novice (never touched crypto before)
 No wallets to configure, no gas fee jargon to learn, no seed phrase panic. They can ask something like "what's my balance?" or "send $5 worth of ETH to my friend" in normal words, and PocketAgent translates that into the correct on-chain action. It removes the biggest barrier to crypto adoption: the intimidating learning curve.
-**For the amateur / casual crypto user**
+
+### ⚡ For the amateur / casual crypto user
 They know the basics but don't want to juggle five different wallet apps or manually check gas prices across chains. PocketAgent lets them compare fees across Ethereum, Polygon, and other chains in one sentence, then execute the cheapest option automatically. It saves time and prevents costly mistakes (like overpaying gas or sending to the wrong network).
-**For the serious crypto user**
+
+### 🏆 For the serious crypto user
 Power users get multi-chain visibility in one place — 52 chains, one interface, no juggling RPC providers or block explorers. The Automations feature lets them schedule recurring actions (like checking balances or executing strategies) without babysitting the app 24/7. The relay analytics dashboard also gives them real transparency into what's happening under the hood, which matters to people who actually care about decentralization.
-**For developers**
+
+### 🛠️ For developers
 This is where the MCP server (pokt-agent-mcp) comes in. Developers can drop Pocket Network's 52-chain reach directly into tools they already use — Claude Desktop, Cursor — and query balances, simulate transactions, or analyze wallets without leaving their editor. No separate SDK to learn, no API key to request. It turns blockchain access into just another tool in their existing workflow.
-**The common thread across all four groups:**
-Nobody has to sign up for Infura or Alchemy, manage API keys, or understand which RPC endpoint goes with which chain. PocketAgent — powered entirely by Pocket Network's permissionless infrastructure — hides that complexity so anyone, at any skill level, can interact with 52 blockchains just by describing what they want.
+
+### 💡 The common thread across all four groups
+> Nobody has to sign up for Infura or Alchemy, manage API keys, or understand which RPC endpoint goes with which chain. PocketAgent — powered entirely by Pocket Network's permissionless infrastructure — hides that complexity so anyone, at any skill level, can interact with 52 blockchains just by describing what they want.
+
 ---
 
 ## Key Features
